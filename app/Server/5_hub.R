@@ -52,9 +52,24 @@ generate_ppi_network <- function(exp.ds, hub_gene_info, hub_ppi_level) {
   
   alias <- readRDS(map_path)
   
-  offline_mapped_genes <- merge(
-    gene_df, alias, by.x = "gene", by.y = "gene"
-  )
+  mapped_all <- gene_df |>
+    dplyr::inner_join(alias, by = "gene") |>
+    dplyr::distinct(gene, STRING_id)
+  
+  ambiguous_genes <- mapped_all |>
+    dplyr::count(gene, name = "n_STRING_ids") |>
+    dplyr::filter(n_STRING_ids > 1)
+  
+  offline_mapped_genes <- mapped_all |>
+    dplyr::anti_join(ambiguous_genes, by = "gene")
+  
+  unmapped_genes <- gene_df |>
+    dplyr::anti_join(alias, by = "gene")
+  
+  print(paste("Input genes:", nrow(gene_df)))
+  print(paste("Uniquely mapped genes:", nrow(offline_mapped_genes)))
+  print(paste("Ambiguous genes:", nrow(ambiguous_genes)))
+  print(paste("Unmapped genes:", nrow(unmapped_genes)))
   
   ppi_path <- paste0("stringdb/", exp.ds$orgnum , "_", hub_ppi_level, "_ppi.RDS")
   print(paste("map path: ", ppi_path))
@@ -67,33 +82,24 @@ generate_ppi_network <- function(exp.ds, hub_gene_info, hub_ppi_level) {
       ppi$protein2 %in% hits,
   ]
   colnames(ppi_sub) <- c("from", "to", "combined_score")
+
+  edges <- as.data.frame(ppi_sub) %>%
+    dplyr::transmute(from = as.character(from), to = as.character(to)) %>%
+    dplyr::filter(!is.na(from), !is.na(to), from != to) %>%
+    dplyr::transmute(protein1 = pmin(from, to), protein2 = pmax(from, to)) %>%
+    dplyr::distinct(protein1, protein2)
   
-  # ppi_sub <- ppi_sub %>%
-  #   dplyr::filter(from %in% offline_mapped_genes$STRING_id &
-  #                 to   %in% offline_mapped_genes$STRING_id)
+  degree_counts <- data.frame(STRING_id = c(edges$protein1, edges$protein2)) %>%
+    dplyr::count(STRING_id, name = "degree")
   
-  id_to_gene <- offline_mapped_genes %>%
-    dplyr::select(STRING_id, gene)
+  protein_degree <- data.frame(
+    STRING_id = unique(as.character(offline_mapped_genes$STRING_id))
+  ) %>%
+    dplyr::left_join(degree_counts, by = "STRING_id") %>%
+    dplyr::mutate(degree = dplyr::coalesce(degree, 0L))
   
-  ppi_sub2 <- ppi_sub %>%
-    left_join(id_to_gene, by = c("from" = "STRING_id")) %>%
-    dplyr::rename(from_gene = gene) %>%
-    left_join(id_to_gene, by = c("to" = "STRING_id")) %>%
-    dplyr::rename(to_gene = gene)
-  
-  g <- igraph::graph_from_data_frame(
-    d = ppi_sub2 %>% dplyr::select(from_gene, to_gene),
-    directed = FALSE
-  )
-  
-  g <- igraph::simplify(g, remove.multiple = TRUE, remove.loops = TRUE)
-  
-  deg <- igraph::degree(g)
-  
-  node_info <- data.frame(
-    gene = names(deg),
-    degree = as.numeric(deg)
-  )
+  node_info <- offline_mapped_genes %>%
+    dplyr::left_join(protein_degree, by = "STRING_id")
   
   return(list(
     node_info = node_info
@@ -117,8 +123,10 @@ observe({
 })
 
 observe({
-  req(input$demo_on)
+  req(input$demo_on, exp.ds$moduleTraitPvalue)
   if(input$demo_on){
+    updateSelectInput(session, "hub_module", selected = "salmon")
+    updateSelectInput(session, "hub_trait", choices = "Stage")
     updateSliderInput(session, "hub_MMcut", value = 0.8)
     updateSliderInput(session, "hub_GScut", value = 0.2) 
   }
@@ -138,7 +146,6 @@ observeEvent(
     hub.ds$modTOM <- NULL
     hub.ds$ppi_hub_gene_info <- NULL
     hub.ds$ppi_list <- NULL
-    hub.ds$top_lab <- NULL
     hub.ds$wgcna_edge_df <- NULL
     hub.ds$wgcna_node_df <- NULL
     hub.ds$wgcna_g <- NULL
@@ -184,8 +191,9 @@ observeEvent(input$hub_gsmm_run, {
   }
   
   showModal(modalDialog(
-    title = "Loading...", easyClose = FALSE, footer = NULL,
-    div(id = "hub_step1", tags$p("Calculate the correlation......."))
+    title = "Preparing hub gene data...",
+    easyClose = FALSE,
+    footer = NULL
   ))
   shinyjs::show("hub_choose_ui")
   # updateRadioGroupButtons(session, "hub_choose", selected = "mm_gs")
@@ -264,9 +272,9 @@ output$hub_gs2mmplot <- renderPlotly({
   p <- ggplot(hub.ds$hubgene_plot, aes(x = absMM, y = absGS)) +
     geom_point(aes(fill = color, text = Gene), shape = 21, color = "black", size = 2) +
     geom_smooth(method = 'lm', color = "royalblue") +
-    xlab(paste0("Module membership in ", hub.ds$gs_mm_module, " module")) +
-    ylab(paste0("Gene significance for ", hub.ds$gs_mm_trait)) +
-    ggtitle(paste0("Module Membership vs. Gene Significance\n", "cor = ", 
+    xlab(paste0("Absolute Module membership (|MM|) in ", hub.ds$gs_mm_module, " module")) +
+    ylab(paste0("Absolute Gene significance (|GS|) for ", hub.ds$gs_mm_trait)) +
+    ggtitle(paste0("Absolute module membership vs. gene significance\n", "cor = ", 
                    signif(hub.ds$hubgene_cor, 2), ", p = ", signif(hub.ds$hubgene_corp, 2))) +
     theme_prism(border = T) +
     theme(legend.position = "none") +
@@ -334,9 +342,9 @@ observeEvent(input$hub_run, {
   }
   
   showModal(modalDialog(
-    title = "Loading...", easyClose = FALSE, footer = NULL,
-    div(id = "hub_step1", tags$p("1. Building the WGCNA network.......")),
-    shinyjs::hidden(div(id = "hub_step1", tags$p("2. Building the STRING PPI network")))
+    title = "Preparing hub gene data...",
+    easyClose = FALSE,
+    footer = NULL
   ))
   # updateRadioGroupButtons(session, "hub_choose", selected = "hub")
   
@@ -353,6 +361,21 @@ observeEvent(input$hub_run, {
   hub.ds$wgcna_hubgene_df <- hubgene_df
   
   ## connectivity v.s. MM ####
+  # connectivity <- rowSums(modTOM)
+  module_connectivity <- exp.ds$connectivity_df |>
+    dplyr::filter(Module == hub.ds$hub_module) |>
+    dplyr::select(Gene, Connectivity = kWithin)
+  
+  hub_gene_info <- hub.ds$wgcna_hubgene_df %>%
+    dplyr::transmute(Gene = gene, AbsMM = absMM, AbsGS = absGS) %>%
+    dplyr::inner_join(module_connectivity, by = "Gene") |>
+    dplyr::select(Gene, Connectivity, AbsMM, AbsGS) |>
+    dplyr::arrange(dplyr::desc(Connectivity))
+  
+  hub.ds$hub_gene_info <- hub_gene_info
+  hub.ds$plot_connect_mm <- TRUE
+  
+  ## WGCNA network ####
   probes = names(exp.ds$table2)
   inModule = is.finite(match(exp.ds$moduleColors, hub.ds$hub_module))
   modProbes = probes[inModule]
@@ -360,19 +383,6 @@ observeEvent(input$hub_run, {
   modTOM = exp.ds$TOM[inModule, inModule]
   dimnames(modTOM) = list(modProbes, modProbes)
   
-  connectivity <- rowSums(modTOM)
-  
-  hub_gene_info <- data.frame(
-    Gene = hub.ds$wgcna_hubgene_df$gene,
-    Connectivity = connectivity,
-    AbsMM = hub.ds$wgcna_hubgene_df$absMM,
-    AbsGS = hub.ds$wgcna_hubgene_df$absGS,
-    stringsAsFactors = FALSE
-  )
-  hub_gene_info <- hub_gene_info[order(-hub_gene_info$Connectivity), ]
-  hub.ds$hub_gene_info <- hub_gene_info
-  
-  ## WGCNA network ####
   hub.ds$modTOM <- modTOM
   
   ## PPI network ####
@@ -381,7 +391,7 @@ observeEvent(input$hub_run, {
   ppi_hub_gene_info <- hub.ds$hub_gene_info
   
   hub.ds$ppi_hub_gene_info <- ppi_hub_gene_info
-  hub.ds$ppi_list <- generate_ppi_network(exp.ds, hub.ds$ppi_hub_gene_info, input$hub_ppi_level)
+  # hub.ds$ppi_list <- generate_ppi_network(exp.ds, hub.ds$ppi_hub_gene_info, input$hub_ppi_level)
   
   ## mm vs ppi degree ####
   
@@ -396,45 +406,62 @@ observeEvent(input$hub_run, {
   removeModal()
 })
 
-observe({
-  req(hub.ds$hub_gene_info, hub.ds$modTOM, hub.ds$wgcna_hubgene_df, hub.ds$ppi_list$node_info)
-  
-  # connectivity v.s. MM
-  hub.ds$plot_connect_mm <- FALSE
+con_mm_cutoff <- reactive({
+  req(hub.ds$hub_gene_info, input$hub_top_cut)
   
   top_n <- as.numeric(input$hub_top_cut)
-  con_mm_cutoff <- quantile(
+  
+  req(is.finite(top_n), top_n >= 0, top_n <= 100)
+  
+  quantile(
     hub.ds$hub_gene_info$Connectivity,
-    probs = 1-top_n/100,
+    probs = 1 - top_n / 100,
     na.rm = TRUE
   )
-  # hub.ds$con_mm_cutoff <- con_mm_cutoff
+})
+
+# Connectivity–MM
+connect_mm_data <- reactive({
+  req(hub.ds$hub_gene_info)
   
-  hub.ds$top_lab <- paste0("Top ", top_n, "% by connected")
-  hub.ds$hub_gene_info$Group <- factor(
+  df <- hub.ds$hub_gene_info
+  top_n <- as.numeric(input$hub_top_cut)
+  top_lab <- paste0("Top ", top_n, "% by connectivity")
+  
+  df$Group <- factor(
     ifelse(
-      hub.ds$hub_gene_info$Connectivity > con_mm_cutoff,
-      hub.ds$top_lab,
+      df$Connectivity > con_mm_cutoff(),
+      top_lab,
       "Other genes"
     ),
-    levels = c(hub.ds$top_lab, "Other genes")
+    levels = c(top_lab, "Other genes")
   )
-  hub.ds$plot_connect_mm <- TRUE
   
-  # wgcna network
+  df
+})
+
+# wgcna network
+observe({
+  req(hub.ds$hub_gene_info, hub.ds$modTOM, hub.ds$wgcna_hubgene_df, input$hub_wgcna_hub_num)
+  
+  showModal(modalDialog(
+    title = "Building WGCNA network...",
+    easyClose = FALSE,
+    footer = NULL
+  ))
+  
   hub.ds$plot_wgcna_network <- FALSE
   hub.ds$wgcna_hub_num <- as.integer(input$hub_wgcna_hub_num)
   
-  genes_to_display <- hub.ds$hub_gene_info$Gene[hub.ds$hub_gene_info$Connectivity > con_mm_cutoff]
-  # genes_to_display <- hub.ds$wgcna_sub_module_connect$gene[hub.ds$wgcna_sub_module_connect$kWithin > con_mm_cutoff]
+  genes_to_display <- hub.ds$hub_gene_info$Gene[
+    hub.ds$hub_gene_info$Connectivity > con_mm_cutoff()
+  ]
   genes_to_label <- head(genes_to_display, hub.ds$wgcna_hub_num)
   
   print("WGCNA network node: ")
   print(genes_to_display)
   
-  selected_TOM <- hub.ds$modTOM[
-    genes_to_display, genes_to_display, drop = FALSE
-  ]
+  selected_TOM <- hub.ds$modTOM[genes_to_display, genes_to_display, drop = FALSE]
   selected_node_attr <- hub.ds$wgcna_hubgene_df[genes_to_display, , drop = FALSE]
   
   cyt = WGCNA::exportNetworkToCytoscape(selected_TOM, weighted = TRUE, threshold = 0, nodeAttr = selected_node_attr)
@@ -460,32 +487,58 @@ observe({
     dplyr::mutate(label = ifelse(name %in% genes_to_label, name, ""), MM = absMM, GS = absGS)
   
   hub.ds$wgcna_g <- wgcna_g
+  
   hub.ds$plot_wgcna_network <- TRUE
   
-  # mm vs ppi degree
+  removeModal()
+})
+
+# mm vs ppi degree
+ppi_network <- reactive({
+  req(hub.ds$ppi_hub_gene_info, input$hub_ppi_level)
+  
+  showModal(modalDialog(
+    title = "Building PPI network...",
+    easyClose = FALSE,
+    footer = NULL
+  ))
+  
+  on.exit(removeModal(), add = TRUE)
+  
+  result <- generate_ppi_network(exp.ds, hub.ds$ppi_hub_gene_info, input$hub_ppi_level)
+  
+  result
+})
+
+observe({
+  req(hub.ds$ppi_hub_gene_info, input$hub_ppi_degree_percent)
+  
   hub.ds$plot_connect_ppi <- FALSE
-  node_info <- hub.ds$ppi_list$node_info
   
-  # debug
-  # print("ppi_hubgene_df")
-  # print(head(hub.ds$ppi_hubgene_df))
+  ppi <- ppi_network()
+  node_info <- ppi$node_info
   
-  df <- dplyr::full_join(x = hub.ds$ppi_hub_gene_info, y = node_info, by = c("Gene" = "gene"))
+  df <- hub.ds$ppi_hub_gene_info %>%
+    dplyr::left_join(node_info, by = c("Gene" = "gene"))
   df$degree[is.na(df$degree)] <- 0
   
-  top_connect <- hub.ds$ppi_hub_gene_info$Gene[hub.ds$ppi_hub_gene_info$Connectivity > con_mm_cutoff]
-  top_ppi <- df %>% dplyr::filter(degree > 0) %>% pull(Gene)
+  top_connect <- df$Gene[df$Connectivity > con_mm_cutoff()]
+  
+  n_top <- ceiling(nrow(df) * as.numeric(input$hub_ppi_degree_percent) / 100)
+  top_ppi <- df %>%
+    dplyr::filter(degree > 0) %>%
+    dplyr::arrange(dplyr::desc(degree), Gene) %>%
+    dplyr::slice_head(n = n_top) %>%
+    dplyr::pull(Gene)
   
   top_both <- base::intersect(top_connect, top_ppi)
-  df_connect <- subset(df, Gene %in% top_connect & !(Gene %in% top_both))
-  df_ppi <- subset(df, Gene %in% top_ppi & !(Gene %in% top_both))
-  df_both <- subset(df, Gene %in% top_both)
   
   df$type <- "Other"
-  df$type[df$Gene %in% df_both$Gene] <- "Top Connectivity & Degree"
-  df$type[df$Gene %in% df_ppi$Gene]  <- "Top Degree"
-  df$type[df$Gene %in% df_connect$Gene]   <- "Top Connectivity"
+  df$type[df$Gene %in% top_connect] <- "Top Connectivity"
+  df$type[df$Gene %in% top_ppi] <- "Top Degree"
+  df$type[df$Gene %in% top_both] <- "Top Connectivity & Degree"
   
+  hub.ds$ppi_list <- ppi
   hub.ds$connect_ppi_df <- df
   hub.ds$plot_connect_ppi <- TRUE
 })
@@ -502,10 +555,10 @@ output$hub_connect_mm_plot_ui <- renderUI({
 })
 
 hub_connect_mm_ggplot <- reactive({
-  req(hub.ds$hub_gene_info)
+  df <- connect_mm_data()
   
   ggplot(
-    hub.ds$hub_gene_info,
+    df,
     aes(
       x = AbsMM, y = Connectivity, color = Group,
       text = paste0(
@@ -518,10 +571,7 @@ hub_connect_mm_ggplot <- reactive({
   ) +
     geom_point(size = 2) +
     scale_color_manual(
-      values = setNames(
-        c("red", "black"),
-        c(hub.ds$top_lab, "Other genes")
-      )
+      values = setNames(c("red", "black"), levels(df$Group)), drop = FALSE
     ) +
     labs(
       title = paste0(
@@ -577,8 +627,9 @@ output$hub_connect_mm_plot <- renderPlotly({
 })
 
 output$hub_connect_mm_dt <- renderDT({
-  req(hub.ds$hub_gene_info)
-  df <- hub.ds$hub_gene_info
+  req(hub.ds$plot_connect_mm)
+  
+  df <- connect_mm_data()
   rownames(df) <- NULL
   
   df <- df %>%
@@ -604,31 +655,6 @@ output$hub_connect_mm_dt <- renderDT({
   )
 })
 
-observeEvent(input$hub_ppi_update, {
-  if (is.null(exp.ds$phen)) {
-    shinyalert("Error", "Please upload a trait file", type = "error")
-    updateTabItems(session, "steps", "interested")
-    return()
-  }
-  if(input$hub_module == "") {
-    shinyalert("Please select a gene group", type = "warning")
-    return()
-  }
-  if(input$hub_trait == "") {
-    shinyalert("Please select a trait", type = "warning")
-    return()
-  }
-  
-  showModal(modalDialog(
-    title = "Loading...", easyClose = FALSE, footer = NULL,
-    div(tags$p("Building the STRING PPI network......."))
-  ))
-  
-  hub.ds$ppi_list <- generate_ppi_network(exp.ds, hub.ds$ppi_hub_gene_info, input$hub_ppi_level)
-
-  removeModal()
-})
-
 output$hub_wgcna_network_ui <- renderUI({
   req(input$hub_wgcna_width, input$hub_wgcna_height)
   
@@ -651,7 +677,7 @@ observe({
                                 "Try lowering Degree Threshold.\n"),
                  size = 6) +
         theme_void()
-    },  width = input$hub_wgcna_width, input$hub_wgcna_height)
+    },  width = input$hub_wgcna_width, height = input$hub_wgcna_height)
   } else {
     num <- sum(hub.ds$wgcna_g %>% tidygraph::activate(nodes) %>% dplyr::pull(label) != "")
     
@@ -660,9 +686,8 @@ observe({
         geom_edge_link(alpha = 0.3, colour = "grey8") +
         geom_node_point(aes(size = Connectivity, fill = GS, alpha = MM),
                         shape = 21, colour = "black") +
-        ggplot2::scale_size_continuous(range = c(3, 12), name = "Connectivity") + 
+        ggplot2::scale_size_continuous(range = c(4, 12), name = "Connectivity") + 
         geom_node_text(aes(label = label), repel = TRUE, size = input$hub_wgcna_tex_size) +
-        scale_size(range = c(4, 12)) +
         scale_fill_gradient(low = "grey40", high = color) +
         theme_void(base_size = 14) +
         labs(

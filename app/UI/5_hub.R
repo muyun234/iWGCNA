@@ -89,8 +89,8 @@ tabItem(
                     shinyjs::hidden(div(
                       id = "hub_gs2mm_plot_all_ui",
                       dropdownButton(
-                        sliderInput("hub_gsmmplot_width", "Plot Width (px):", min = 200, max = 800, value = 450, step = 10),
-                        sliderInput("hub_gsmmplot_height", "Plot Height (px):", min = 200, max = 800, value = 350, step = 10),
+                        sliderInput("hub_gsmmplot_width", "Plot Width (px):", min = 200, max = 800, value = 580, step = 10),
+                        sliderInput("hub_gsmmplot_height", "Plot Height (px):", min = 200, max = 800, value = 460, step = 10),
                         circle = F, status = "danger", icon = icon("cog"), width = "300px", size = 'sm',
                         tooltip = tooltipOptions(title = "Adjust Plot Size")
                       ),
@@ -239,15 +239,17 @@ tabItem(
                               ), 
                               selected = 400, inline = TRUE, status = "info", fill = TRUE
                             )
-                          ),
-                          shinyjs::hidden(div(
-                            id = "hub_ppi_update_ui",
-                            bs4Dash::actionButton(
-                              "hub_ppi_update",em("Update"), status = "primary",
-                              style = "box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.4); border-radius: 8px;"
-                            ),
-                            div(style = "margin-bottom: 10px;")
-                          ))
+                          )
+                        ),
+                        column(
+                          width = 4,
+                          div(
+                            sliderInput(
+                              inputId = 'hub_ppi_degree_percent',
+                              label = tagList(tags$div("Top Degree (%)")), 
+                              min = 1.0, max = 100, value = 10.0, step = 0.5, post = "%"
+                            )
+                          )
                         )
                       ),
                       fluidRow(

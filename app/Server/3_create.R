@@ -277,6 +277,17 @@ observeEvent(input$cre_run2, {
   file2_path <- file.path(data_folder$folder_path, "gene_mapping.rds")
   saveRDS(module_numbers, file2_path)
   
+  # kWithin
+  df <- WGCNA::intramodularConnectivity.fromExpr(datExpr = exp.ds$table2, colors = exp.ds$moduleColors, 
+                                                 power = power(), networkType = networktype())
+  connectivity_df <- data.frame(
+    Gene = colnames(exp.ds$table2),
+    Module = exp.ds$moduleColors,
+    df, row.names = NULL
+  )
+  
+  exp.ds$connectivity_df <- connectivity_df
+  
   # exp.ds$TOM <- TOMsimilarityFromExpr(exp.ds$table2, power = power(), TOMType = tomtype(), networkType = networktype())
   e <- new.env()
   load(exp.ds$net$TOMFiles[1], envir = e)

@@ -79,7 +79,9 @@ observe({
     updateSliderInput(session, inputId = "cutoff", value = 0.9)
     updateSliderInput(session, inputId = "minMsize", value = 30)
     updateSliderInput(session, inputId = "mch", value = 0.25)
-    
+    updateSliderInput(session, inputId = "hub_top_cut", value = 15.0)
+    updatePrettyRadioButtons(session, inputId = "hub_ppi_level", selected = 900)
+    updateSliderInput(session, inputId = "hub_ppi_degree_percent", value = 15.0)
   }
 })
 

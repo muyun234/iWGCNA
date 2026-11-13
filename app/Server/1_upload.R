@@ -35,10 +35,7 @@ organism_list <- list(
   "Glycine max" = list(code = "gmx", orgnum = 3847),
   "Oryza sativa Japonica" = list(code = "osa", orgnum = 39947),
   "Zea mays" = list(code = "zma", orgnum = 4577),
-  
-  # 真菌
-  "Saccharomyces cerevisiae" = list(code = "sce", orgnum = 4932),
-  
+
   # 原生生物
   "Plasmodium falciparum" = list(code = "pfa", orgnum = 36329),
   # "T. vaginalis G3 2022 (ref)" = list(code = "tva", orgdb = "org.Tvaginalis.eg.db", orgnum = 5722),
