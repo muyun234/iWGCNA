@@ -1,78 +1,120 @@
 # server
+
 ## step 1 : Set Normalization set.
 shiny::hideTab(inputId = "pre_tabs", target = "outlier_tab")
 
 output$method_ui <- renderUI({
-  if (input$raw_format == "normalized_count"){
-    pickerInput(
-      inputId = "normalized_method",
-      label = tags$div(
-        tags$span(
-          style = "font-size: 18px;", "Normalization Method："
-        ),
-        tags$br(),
-        tags$small(
-          style = "font-size: 13px; color: #666;",
-          "Choose the normalization method for the input expression data."
-        )
-      ),          
-      choices = c("original value (FPKM, RPKM, TPM, or CPM)" = "raw", "logarithm, Log2(x+1)" = "logarithm"),
-      inline = TRUE,
-      options = list(style = "btn-info")
-    )
-  } else if (input$raw_format == "count"){
-    pickerInput(
-      inputId = "normalized_method",
-      label = tags$div(
-        tags$span(
-          style = "font-size: 18px;", "Normalization Method："
-        ),
-        tags$br(),
-        tags$small(
-          style = "font-size: 13px; color: #666;",
-          "Choose the normalization method for the input expression data."
-        )
-      ),
-      choices = c("VST (DESeq2)" = "vst", "logarithm, Log2(x+1)" = "logarithm"),
-      inline = TRUE,
-      options = list(style = "btn-info")
-    )
-  }
+  req(input$raw_format)
+  shinyWidgets::prettyRadioButtons(
+    "normalized_method", label = NULL,
+    choiceNames = list(
+      tags$span(tags$strong(if (input$raw_format == "count") "VST (DESeq2)" else "Use input values"),
+                tags$small(if (input$raw_format == "count") "Variance-stabilizing transformation" else "No additional transformation")),
+      tags$span(tags$strong("Log2 transformation"), tags$small("Apply log2(x + 1)"))
+    ),
+    choiceValues = c(if (input$raw_format == "count") "vst" else "raw", "logarithm"),
+    selected = if (input$raw_format == "count") "vst" else "raw",
+    inline = FALSE, status = "info", shape = "round", fill = TRUE, width = "100%"
+  )
+})
+
+output$transformation_hint <- renderUI({
+  req(input$raw_format)
+  tags$p(class = "analysis-hint", if (input$raw_format == "normalized_count")
+    "Already log-transformed? Choose Use input values." else
+      "For non-negative raw counts. VST uses DESeq2; log2 applies log2(x + 1).")
 })
 
 output$cutoff_ui <- renderUI({
-  if(input$raw_format == "normalized_count") {
-    # numericInput(
-    #   inputId = "expression_cutoff",
-    #   label = tags$span(
-    #     style = "font-size: 18px;", "Expression Cutoff ：", "",
-    #     actionButton("ec_alt",label = "",icon = icon("info"), class = "btn-info btn-xs")
-    #   ), 
-    #   min = 0,  max = 100, value = 1, width = '100%'
-    # )
-  } else if (input$raw_format == "count") {
-    numericInput(
-      inputId = "expression_cutoff",
-      label = tags$div(
-        tags$span(
-          style = "font-size: 18px;", "Low-Expression Gene Cutoff ："
-        ),
-        tags$br(),
-        tags$small(
-          style = "font-size: 13px; color: #666;",
-          "Minimum expression value to be considered expressed (e.g., counts < 10)."
-        )
-      ), 
-      min = 0, max = 100, value = 10, width = '100%'
-    )
-  }
+  req(input$raw_format)
+  numericInput("expression_cutoff", "Expression cutoff", min = 0,
+               value = if (input$raw_format == "normalized_count") 0 else 10,
+               step = 0.1, width = "100%")
 })
+
+# when cutoff_ui is rendered again after a format change.
+observe({
+  input$raw_format
+  input$expression_cutoff
+  shinyjs::toggleState("expression_cutoff", condition = isTRUE(input$low_expression_filter))
+  shinyjs::toggleState("sample_percentage", condition = isTRUE(input$low_expression_filter))
+})
+observe({
+  shinyjs::toggleState("cutMethod", condition = identical(input$gene_selection, "top"))
+})
+
+output$low_filter_hint <- renderUI({
+  if (!isTRUE(input$low_expression_filter)) {
+    return(tags$p(class = "analysis-hint", "Filtering is off. No genes will be removed by this step."))
+  }
+  req(input$expression_cutoff, !is.null(input$sample_percentage))
+  tags$p(class = "analysis-hint", paste0(
+    "Remove genes with expression < ", input$expression_cutoff,
+    " in more than ", input$sample_percentage,
+    "% of samples. Filtering uses input values before transformation."
+  ))
+})
+
+pre_input_matrix <- reactive({
+  req(exp.ds$data, ncol(exp.ds$data) >= 2L)
+  values <- exp.ds$data[, -1, drop = FALSE]
+  validate(need(all(vapply(values, is.numeric, logical(1))), "Expression values must be numeric."))
+  x <- as.matrix(values)
+  validate(need(nrow(x) > 0L && ncol(x) > 0L && all(is.finite(x)),
+                "Expression data must contain finite numeric values."))
+  x
+})
+
+pre_available_genes <- reactive({
+  x <- pre_input_matrix()
+  if (!isTRUE(input$low_expression_filter)) return(nrow(x))
+  req(!is.null(input$expression_cutoff), !is.null(input$sample_percentage))
+  sum(rowMeans(x < input$expression_cutoff) <= input$sample_percentage / 100)
+})
+
+output$available_gene_count <- renderText({
+  if (is.null(exp.ds$data)) return("Upload data to see available genes")
+  paste(format(pre_available_genes(), big.mark = ",", scientific = FALSE, trim = TRUE), "genes available")
+})
+
+preprocessing_summary_content <- reactive({
+  method_names <- c(raw = "None", logarithm = "Log2(x + 1)", vst = "VST (DESeq2)")
+  method <- if (is.null(input$normalized_method)) "Awaiting input" else unname(method_names[input$normalized_method])
+  filtering <- if (isTRUE(input$low_expression_filter)) paste0(
+    "On; expression < ", input$expression_cutoff, " in > ", input$sample_percentage, "% of samples"
+  ) else "Off"
+  retained <- if (is.null(exp.ds$data)) "Upload expression data first" else {
+    available <- pre_available_genes()
+    fmt <- function(n) format(n, big.mark = ",", scientific = FALSE, trim = TRUE)
+    if (identical(input$gene_selection, "all")) paste0("All ", fmt(available), " available genes") else {
+      n <- input$reserved_gene_num
+      if (is.null(n) || !is.finite(n) || n < 1 || n != floor(n)) "Enter a positive integer for N" else
+        paste0("Top ", fmt(min(n, available)), " / ", fmt(available), " available genes")
+    }
+  }
+  tagList(
+    tags$p(tags$strong("Transformation: "), method),
+    tags$p(tags$strong("Low-expression filtering: "), filtering),
+    tags$p(tags$strong("Genes to retain: "), retained),
+    tags$p(class = "analysis-summary-note",
+           "Settings used for this analysis. WGCNA quality checks may remove additional genes or samples.")
+  )
+})
+
+preprocessing_summary_saved <- reactiveVal(NULL)
+output$preprocessing_summary <- renderUI({
+  preprocessing_summary_saved()
+})
+
 
 observe({
   req(input$demo_on)
   if(input$demo_on){
-    updatePickerInput(session, inputId = "normalized_method", selected = "raw")
-    updateNumericInput(session, inputId = "sample_percentage", value = 0)
+    updatePrettyRadioButtons(session, inputId = "normalized_method", selected = "raw")
+    updateSwitchInput(session, "low_expression_filter", value = FALSE)
+    updatePrettyRadioButtons(session, "gene_selection", selected = "all")
+    updateNumericInput(session, inputId = "expression_cutoff", value = 0)
+    updateNumericInput(session, inputId = "sample_percentage", value = 90)
     updatePickerInput(session, inputId = "cutMethod", selected = "MAD")
     updateNumericInput(session, inputId = "reserved_gene_num", value = 21653)
     updatePrettyRadioButtons(session, inputId = "Networktype", selected = "unsigned")
@@ -126,30 +168,43 @@ observeEvent(input$pre_filter, {
   shiny::hideTab(inputId = "pre_tabs", target = "outlier_tab")
   
   # 清空remove outlier的圖
-  shinyjs::hide()
+  shinyjs::hide("step2_2_remove_ui")
+  shinyjs::hide("pre_download4_ui")
+  shinyjs::hide("step3_1_ui")
+  shinyjs::hide("predownload2_ui")
+  shinyjs::hide("pre_summary_ui")
+  output$pre_choose_remove_ui <- renderUI(NULL)
   output$pre_clustPlot2 = renderPlotly({
     NULL
   })
   output$pre_table = DT::renderDataTable({
     NULL
   })
-
+  
   print("Start preprocessing")
   
   method = input$normalized_method
   
-  if (input$raw_format == "normalized_count") {
-    RcCutoff <- 0
-  } else if (input$raw_format == "count") {
-    RcCutoff <- as.numeric(input$expression_cutoff)
-  }  
-  
-  # 其他輸入
-  samplePerc <- as.numeric(input$sample_percentage)
-  # GNC <- as.numeric(input$reserved_gene_num)
-  GNC <- as.integer(input$reserved_gene_num)
-  cutmethod <- input$cutMethod
   datatype <- input$raw_format
+  filter_enabled <- isTRUE(input$low_expression_filter)
+  RcCutoff <- if (filter_enabled) as.numeric(input$expression_cutoff) else 0
+  samplePerc <- if (filter_enabled) as.numeric(input$sample_percentage) / 100 else 0
+  keep_all <- identical(input$gene_selection, "all")
+  requested_n <- input$reserved_gene_num
+  cutmethod <- input$cutMethod
+  if (filter_enabled && (length(RcCutoff) != 1L || !is.finite(RcCutoff) || RcCutoff < 0 ||
+                         length(samplePerc) != 1L || !is.finite(samplePerc) || samplePerc < 0 || samplePerc > 1)) {
+    removeModal()
+    shinyalert("Invalid filtering settings", type = "warning")
+    return()
+  }
+  if (!keep_all && (length(requested_n) != 1L || !is.finite(requested_n) ||
+                    requested_n < 1 || requested_n > 80000 || requested_n != floor(requested_n))) {
+    removeModal()
+    shinyalert("Please enter an integer N between 1 and 80,000", type = "warning")
+    return()
+  }
+  GNC <- if (keep_all) nrow(exp.ds$data) else as.integer(requested_n)
   
   exp.ds$table = data.frame()
   exp.ds$table2 = data.frame()
@@ -169,10 +224,19 @@ observeEvent(input$pre_filter, {
       x <- exp.ds$data %>%
         setNames(c("id",colnames(.)[-1])) %>%
         mutate(id = as.character(id)) %>%
-        tibble::column_to_rownames("id") %>%
-        dplyr::filter(
-          rowSums(. > RcCutoff) > (samplePerc*ncol(.))
-        )
+        tibble::column_to_rownames("id") 
+      
+      if (!all(vapply(x, is.numeric, logical(1))) || !all(is.finite(as.matrix(x)))) {
+        stop("Expression values must be finite numbers.")
+      }
+      if (filter_enabled) {
+        # Maximum LOW-expression fraction, not minimum expressed fraction.
+        x <- x[rowMeans(x < RcCutoff) <= samplePerc, , drop = FALSE]
+      }
+      if (!nrow(x)) stop("No genes were retained under the current filtering settings.")
+      if (method %in% c("vst", "logarithm") && any(x < 0)) {
+        stop("VST and log2 transformation require non-negative input values.")
+      }
       
       if (datatype == "expected_count") {
         x <- x %>%
@@ -226,30 +290,28 @@ observeEvent(input$pre_filter, {
     
     print(exp.ds$gnccheck)
     
-    GeneNumCut <- 1-exp.ds$GNC/nrow(exp.ds$table)
-    
-    if(GeneNumCut == 0){
+    if (keep_all || exp.ds$GNC == nrow(exp.ds$table)) {
       datExprVar <- exp.ds$table
-    } else if(cutmethod == "MAD"){
-      m.mad <- apply(exp.ds$table, 1, mad)
-      datExprVar <- exp.ds$table[which(m.mad > max(quantile(m.mad, probs=seq(0, 1, GeneNumCut))[2], 0.01)),]
-    } else if(cutmethod == "Var"){
-      m.var <- apply(exp.ds$table, 1, var)
-      datExprVar <- exp.ds$table[which(m.var > max(quantile(m.var, probs=seq(0, 1, GeneNumCut))[2], 0.01)),]
     } else {
-      print("Error: wrong filter method")
+      score <- if (cutmethod == "MAD") {
+        apply(exp.ds$table, 1, mad)
+      } else {
+        apply(exp.ds$table, 1, var)
+      }
+      
+      # Stable row order breaks ties; retain exactly N before WGCNA QC.
+      selected <- head(order(score, decreasing = TRUE, na.last = TRUE), exp.ds$GNC)
+      datExprVar <- exp.ds$table[selected, , drop = FALSE]
     }
     
     dim(datExprVar)
     datExpr <- as.data.frame(t(datExprVar))
     gsg = WGCNA::goodSamplesGenes(datExpr, verbose = 3)
     if (!gsg$allOK){
-      # Optionally, print the gene and sample names that were removed:
       if (sum(!gsg$goodGenes) > 0)
         printFlush(paste("Removing genes:", paste(names(datExpr)[!gsg$goodGenes], collapse = ",")))
       if (sum(!gsg$goodSamples) > 0)
         printFlush(paste("Removing samples:", paste(rownames(datExpr)[!gsg$goodSamples], collapse = ",")))
-      # Remove the offending genes and samples from the data:
       datExpr = datExpr[gsg$goodSamples, gsg$goodGenes]
     }
     exp.ds$table2 <- datExpr
@@ -281,6 +343,10 @@ observeEvent(input$pre_filter, {
                     `<i class='fa fa-table'></i>` = 'table'),
         selected = "plot", justified = TRUE, width = "50", status = "info"
       )
+    })
+    
+    output$infobox3 <- renderInfoBox({
+      infoBox("Retained Samples", nrow(exp.ds$table2), icon = icon("vial"), color = "info")
     })
     
     # sample tree
@@ -332,8 +398,13 @@ observeEvent(input$pre_filter, {
                 colnames = c('GeneID' = 1))
     })
     
+    preprocessing_summary_saved(
+      isolate(preprocessing_summary_content())
+    )
+    
     shinyjs::show("step3_1_ui")
     shinyjs::show("predownload2_ui")
+    shinyjs::show("pre_summary_ui")
     shiny::showTab(inputId = "pre_tabs", target = "outlier_tab")
     removeModal() 
   }
@@ -440,7 +511,7 @@ observeEvent(input$remove, {
     
     dev.off()
     return(rmplotly_obj)
-    })
+  })
   
   output$rm_table = DT::renderDataTable({
     if(is.null(exp.ds$table2)){return()}
@@ -450,12 +521,12 @@ observeEvent(input$remove, {
               # selection = list(mode = 'single', selected = c(1)),
               options = list(pageLength = 10, scrollX = TRUE, autoWidth = TRUE),
               colnames = c('GeneID' = 1))
-    })
+  })
   
   shinyjs::show("step2_2_remove_ui")
   shinyjs::show("pre_download4_ui")
   removeModal()
-  })
+})
 
 observeEvent(input$step2_2_remove, {
   updateTabItems(session, "steps", "create")
@@ -491,137 +562,4 @@ output$predownload4 <- downloadHandler(
     write.table(x = t(df2), file = file, sep = ",", quote = FALSE, row.names = T)
   }
 )
-
-###################################################################
-## show icon info.
-
-# Choose normalized method when format === count 
-# addPopover(
-#   id = "nor",
-#   options = list(
-#     content = paste0("We recommend a variance-stabilizing transformation(vst) by DESeq2 ,
-#                      but one could also start with normalized counts (e,g: RPKM/FPKM data) and 
-#                      log-transform them using log10(x+1)."
-#                      # br(),
-#                      # "Any info is here",
-#                      # a("WGCNA Q&A",href = "https://horvath.genetics.ucla.edu/cgi-sys/suspendedpage.cgi", target="_blank")
-#     ),
-#     title = "More information",
-#     placement = "right",
-#     trigger = "click",
-#     html = TRUE  # Ensure HTML content is parsed
-#   )
-# )
-
-# Input Expression cutoff when format === count
-addPopover(
-  id = "ec",
-  options = list(
-    content = paste0(
-      "Recommend : ",br(),
-      "For count : Remove genes with counts < 10 in more than 90% of samples. ",br(),
-      "For normalized count : Remove genes with counts < 1 in more than 90% of samples."
-      # br(),
-      # "Any info is here",
-      # a("WGCNA Q&A", href = "https://horvath.genetics.ucla.edu/cgi-sys/suspendedpage.cgi", target = "_blank")
-    ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-# Choose normalized method when format !== count 
-addPopover(
-  id = "nor",
-  options = list(
-    content = paste0(
-      "We recommend a variance-stabilizing transformation(vst) by DESeq2,
-      and log-transform them using log10(x+1)."
-      ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-# Input Expression cutoff foramt !=== count
-addPopover(
-  id = "ec_alt",
-  options = list(
-    content = paste0(
-      "Recommend : ",br(),
-      "For count : Remove genes with counts < 'Cutoff' in more than 'Fraction of Sample'. ",br(),
-      "For normalized count : Remove genes with counts < 0 in more than 'Fraction of Sample'."
-      # br(),
-      # "Any info is here",
-      # a("WGCNA Q&A", href = "https://horvath.genetics.ucla.edu/cgi-sys/suspendedpage.cgi", target = "_blank")
-    ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-# Input Sample percentage
-addPopover(
-  id = "sp",
-  options = list(
-    content = paste0(
-      "Recommend : ",br(),
-      "For count : Remove genes with low expression across samples. ",br(),
-      "For normalized count : Remove genes by the fraction of samples."
-      # br(),
-      # "Any info is here",
-      # a("WGCNA Q&A", href = "https://horvath.genetics.ucla.edu/cgi-sys/suspendedpage.cgi", target = "_blank")
-    ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-# Choose filter gene number method
-addPopover(
-  id = "cm",
-  options = list(
-    content = paste0(
-      "Filter the top N genes with the greatest variation through median absolute deviation (MAD) ",
-      "or based on variance (VAR) for subsequent analysis." 
-      # br(),
-      # "Any info is here",
-      # a("WGCNA Q&A", href = "https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html", target = "_blank")
-    ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-# Input Reserved gene number
-addPopover(
-  id = "rgn",
-  options = list(
-    content = paste0(
-      "According to experimental needs and data characteristics to adjust.",
-      br(),
-      "If the number exceeds the count of genes that remain after the filtering process, 
-      all the filtered genes will be retained.”"
-    ),
-    title = "More information",
-    placement = "right",
-    trigger = "click",
-    html = TRUE  # Ensure HTML content is parsed
-  )
-)
-
-
-
-
-
 

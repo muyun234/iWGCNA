@@ -63,18 +63,51 @@ options(
 
 # Define UI for application
 ui <- dashboardPage(
-  # preloader = list(html = tagList(spin_1(), "Loading ..."), color = "#adb5bd"),
   fullscreen = TRUE,
   dark = NULL,
   help = NULL,
   header = dashboardHeader(
-    title = "",
-    center = tags$h2(style="color:white;font-family:Comic Sans MS;","iWGCNA：An integrative Web Server for Weighted Gene Co-expression Network Analysis"), 
-    status = "info"
+    title = bs4Dash::dashboardBrand(
+      title = tags$span(
+        class = "iw-brand-text",
+        tags$strong("iWGCNA"),
+        tags$small("Co-expression analysis")
+      ),
+      # image = "iwgcna_logo.png",
+      color = "info"
+    ),
+    skin = "light",
+    status = "white",
+    border = TRUE,
+    rightUi = tagList(
+      tags$li(
+        class = "nav-item dropdown",
+        tags$a(
+          class = "nav-link iw-header-link",
+          href = "https://appliedbioinformatics.notion.site/ebd//2cd160e47a6980e3a0abe769e96eed7b",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          icon("book-open"),
+          tags$span("Tutorial")
+        )
+      ),
+      tags$li(
+        class = "nav-item dropdown",
+        tags$a(
+          class = "nav-link iw-header-link iw-header-github",
+          href = "https://github.com/muyun234/iWGCNA",
+          target = "_blank",
+          rel = "noopener noreferrer",
+          icon("github"),
+          tags$span("GitHub")
+        )
+      )
+    )
   ),
   sidebar = bs4DashSidebar(
-    skin = "light",
+    skin = "dark",
     status = "info",
+    width = 260,
     elevation = 3,
     collapsed = TRUE,
     sidebarMenu(
@@ -86,6 +119,7 @@ ui <- dashboardPage(
       menuItem("4. Module-Trait Association", tabName = "interested", icon = icon("location-pin")),
       menuItem("5. Hub Gene Identification", tabName = "hub", icon = icon("star", class = "fa-solid")),
       menuItem("6. Functional Enrichment Analysis", tabName = "function", icon = icon("map")),
+      tags$li(class = "iw-sidebar-divider", role = "separator"),
       menuItem("Tutorial", tabName = "tutorial", icon = icon("book")),
       menuItem("News", tabName = "news", icon = icon("newspaper"))
       # menuItem("GEO Data Retrieval", tabName = "geo", icon = icon("database"))

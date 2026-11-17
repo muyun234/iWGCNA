@@ -1,0 +1,318 @@
+/* ==================================================
+   Shared analysis UI: add class="analysis-page" to a page wrapper.
+   Plain CSS, loaded with tags$style(HTML(...)); no <style> tags here.
+   Only explicit analysis-* classes opt into these styles.
+   ================================================== */
+.analysis-page {
+  --analysis-info: #17a2b8;
+  --analysis-info-soft: #e8f6f8;
+  color: #292d32;
+}
+
+/* Page heading */
+.analysis-page .analysis-page-heading { margin: 4px 0 24px; }
+.analysis-page .analysis-page-heading h2 { margin: 0 0 7px; font-size: 34px; font-weight: 700; }
+.analysis-page .analysis-page-heading p { margin: 0; color: #626970; font-size: 18px; }
+.analysis-page .tab-content { padding-top: 22px; }
+
+/* Numbered settings cards */
+.analysis-page .analysis-settings { width: 100%; min-width: 0; margin: 0 auto; }
+.analysis-page .analysis-step { margin-bottom: 18px; padding: 22px 20px; border: 1px solid #d2d7dc; border-radius: 12px; background: #fff; }
+.analysis-page .analysis-step-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.analysis-page .analysis-step-heading > div { min-width: 0; }
+.analysis-page .analysis-step-number { display: inline-flex; flex: 0 0 38px; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; background: var(--analysis-info); color: #fff; font-size: 22px; font-weight: 700; }
+.analysis-page .analysis-step h3,
+.analysis-page .analysis-summary h3 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+.analysis-page .analysis-step-heading p { margin: 0; color: #626970; font-size: 15px; }
+
+/* Optional switch below a card heading */
+.analysis-page .analysis-heading-with-switch { flex-wrap: wrap; }
+.analysis-page .analysis-heading-text { flex: 1; min-width: 0; }
+.analysis-page .analysis-switch { flex: 0 0 100%; margin: 0; padding: 0 0 0 50px; box-sizing: border-box; }
+
+/* Inputs within settings cards */
+.analysis-page .analysis-step .shiny-input-container { max-width: 100%; }
+.analysis-page .analysis-step .control-label { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
+.analysis-page .analysis-step .form-control { min-height: 44px; border-radius: 7px; font-size: 16px; }
+.analysis-page .analysis-step .form-control:focus { border-color: var(--analysis-info); box-shadow: 0 0 0 3px rgba(23,162,184,.14); }
+.analysis-page .analysis-step .form-control:disabled { background: #edf0f2; color: #93999f; cursor: not-allowed; }
+.analysis-page .analysis-fields-stack > .row > div { flex: 0 0 100%; max-width: 100%; }
+.analysis-page .analysis-hint { margin: 10px 0 0; color: #626970; font-size: 15px; }
+
+/* Optional card-style prettyRadioButtons.
+   Wrap the control or its uiOutput in div(class="analysis-choice-cards", ...).
+   Use inline=FALSE, shape="round", status="info", fill=TRUE in R. */
+.analysis-page .analysis-choice-cards .shiny-input-radiogroup { width: 100%; margin: 0; padding: 0; }
+.analysis-page .analysis-choice-cards .shiny-input-radiogroup > label { display: none; }
+.analysis-page .analysis-choice-cards .shiny-options-group { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+.analysis-page .analysis-choice-cards .pretty { position: relative; display: block; width: 100%; min-width: 0; min-height: 90px; margin: 0; padding: 0; border: 1px solid #cbd0d5; border-radius: 10px; white-space: normal; box-sizing: border-box; }
+.analysis-page .analysis-choice-cards .pretty:has(input:checked) { border-color: var(--analysis-info); background: var(--analysis-info-soft); box-shadow: inset 0 0 0 1px var(--analysis-info); }
+.analysis-page .analysis-choice-cards .pretty:focus-within { outline: 3px solid rgba(23,162,184,.28); outline-offset: 2px; }
+.analysis-page .analysis-choice-cards .pretty .state,
+.analysis-page .analysis-choice-cards .pretty .state label { position: static; }
+.analysis-page .analysis-choice-cards .pretty .state label { display: block; width: 100%; height: auto; margin: 0; padding: 16px 18px 16px 48px; text-indent: 0; white-space: normal; line-height: 1.5; box-sizing: border-box; }
+.analysis-page .analysis-choice-cards .pretty .state label::before,
+.analysis-page .analysis-choice-cards .pretty .state label::after { position: absolute; left: 18px; top: 21px; }
+.analysis-page .analysis-choice-cards .pretty input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; z-index: 3; cursor: pointer; }
+.analysis-page .analysis-choice-cards strong { font-size: 18px; }
+.analysis-page .analysis-choice-cards small { display: block; margin-top: 4px; color: #626970; font-size: 15px; }
+.analysis-page .analysis-choice-cards strong,
+.analysis-page .analysis-choice-cards small { white-space: normal; word-break: normal; overflow-wrap: normal; }
+
+/* Optional compact prettyRadioButtons list.
+   Wrap the control in div(class="analysis-radio-list", ...). */
+.analysis-page .analysis-radio-list .shiny-input-radiogroup { margin: 18px 0 0; }
+.analysis-page .analysis-radio-list .pretty { position: relative; display: block; min-height: 28px; margin: 0 0 16px; white-space: normal; }
+.analysis-page .analysis-radio-list .pretty .state,
+.analysis-page .analysis-radio-list .pretty .state label { position: static; }
+.analysis-page .analysis-radio-list .pretty .state label { display: block; height: auto; padding-left: 30px; text-indent: 0; white-space: normal; line-height: 1.5; }
+.analysis-page .analysis-radio-list .pretty .state label::before,
+.analysis-page .analysis-radio-list .pretty .state label::after { position: absolute; top: 3px; left: 0; }
+.analysis-page .analysis-radio-list strong { font-size: 17px; }
+.analysis-page .analysis-radio-list small { display: block; color: #626970; font-size: 15px; }
+.analysis-page .analysis-indented-input { max-width: 320px; margin-left: 30px; }
+
+/* Picker appearance in this page */
+.analysis-page .bootstrap-select > .dropdown-toggle { min-height: 44px; border-radius: 7px; font-size: 16px; text-align: left; }
+
+/* Result summary and actions */
+.analysis-page .analysis-summary { margin: 20px 0; padding: 20px; border-radius: 11px; background: var(--analysis-info-soft); }
+.analysis-page .analysis-summary p { margin: 7px 0 0; font-size: 16px; }
+.analysis-page .analysis-summary .analysis-summary-note { color: #626970; font-size: 13px; }
+.analysis-page .analysis-button { width: 100%; min-height: 52px; border-radius: 8px; font-size: 19px; font-weight: 700; white-space: normal; }
+.analysis-page .analysis-next { margin-top: 18px; }
+.analysis-page .analysis-results { margin-top: 0; }
+.analysis-page .analysis-plot-scroll { width: 100%; margin-top: 14px; overflow: auto; }
+
+/* Small screens */
+@media (max-width: 767px) {
+  .analysis-page .analysis-page-heading h2 { font-size: 28px; }
+  .analysis-page .analysis-step { padding: 18px 16px; }
+  .analysis-page .analysis-step h3,
+  .analysis-page .analysis-summary h3 { font-size: 21px; }
+  .analysis-page .analysis-results { margin-top: 24px; }
+}
+
+
+/* ==================================================
+   Home: bs4Dash boxes + Bootstrap rows/columns + shinyWidgets buttons.
+   Scoped to .iw-home; existing analysis styles above remain unchanged.
+   ================================================== */
+.iw-home { padding: 4px 0 8px; line-height: 1.45; }
+.iw-home .card {
+  border: 1px solid #d2d7dc; border-radius: 12px;
+  background: #fff; margin-bottom: 18px;
+}
+.iw-home .home-hero .card-body { padding: 30px 28px; }
+.iw-home .home-hero .card-body > .row { align-items: center; }
+.iw-home .home-eyebrow { margin: 0 0 10px; color: #117b8c; font-size: 20px; font-weight: 700; letter-spacing: .025em; }
+.iw-home .home-title { margin: 0 0 16px; color: #20272e; font-size: clamp(30px,3.4vw,50px); line-height: 1.12; font-weight: 700; letter-spacing: -.025em; }
+.iw-home .home-lead { margin: 0 0 24px; color: #4f575e; font-size: 20px; }
+.iw-home .home-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+/* actionBttn has no info color; these scoped rules match analysis-info. */
+.iw-home .home-button { min-height: 52px; padding: 12px 24px; border-radius: 8px; font-size: 18px; font-weight: 700; white-space: normal; line-height: 1.4; }
+.iw-home .home-button-primary.bttn-simple { background: var(--analysis-info); color: #fff; }
+.iw-home .home-button-primary.bttn-simple:hover { background: #138496; }
+.iw-home .home-button-secondary.bttn-bordered { border-color: var(--analysis-info); color: #117b8c; background: #fff; }
+.iw-home .home-button-secondary.bttn-bordered:hover { background: var(--analysis-info-soft); }
+.iw-home .home-button:focus-visible { outline: 3px solid rgba(23,162,184,.4); outline-offset: 3px; }
+.iw-home .home-note { margin: 12px 0 0; color: #626970; font-size: 15px; }
+.iw-home .home-illustration { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; }
+.iw-home .home-features > .row > [class*="col-"] { display: flex; }
+.iw-home .home-features .card { width: 100%; }
+.iw-home .home-features .card-body { display: flex; align-items: center; padding: 22px 20px; }
+.iw-home .home-feature { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.iw-home .home-feature-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 64px; min-height: 76px; padding-right: 18px; border-right: 1px solid #d2d7dc; color: var(--analysis-info); font-size: 37px; }
+.iw-home .home-feature h3 { margin: 0 0 6px; font-size: 21px; font-weight: 700; line-height: 1.2; }
+.iw-home .home-feature p { margin: 0; font-size: 16px; color: #4f575e; }
+.iw-home .home-performance .card-body { padding: 22px 24px 18px; }
+.iw-home .home-performance h2 { margin: 0 0 3px; font-size: 27px; font-weight: 700; line-height: 1.25; }
+.iw-home .home-benchmark-context { margin: 0 0 12px; font-size: 18px; color: #4f575e; }
+.iw-home .home-performance .card-body > .row { align-items: center; }
+.iw-home .home-chart svg { display: block; width: 100%; height: auto; }
+.iw-home .home-speedups { border-left: 1px solid #d2d7dc; padding: 8px 0 8px 26px; }
+.iw-home .home-speedup + .home-speedup { margin-top: 20px; }
+.iw-home .home-speedup strong { display: block; color: #117b8c; font-size: clamp(36px,4vw,54px); line-height: 1.1; font-weight: 700; }
+.iw-home .home-speedup p { margin: 5px 0 0; color: #4f575e; font-size: 17px; }
+.iw-home .home-benchmark-note { margin: 10px 0 0; color: #626970; font-size: 13px; }
+@media (max-width: 1199px) {
+  .iw-home .home-feature { gap: 12px; }
+  .iw-home .home-features .card-body { padding: 20px 16px; }
+  .iw-home .home-feature-icon { flex-basis: 48px; padding-right: 12px; font-size: 30px; }
+  .iw-home .home-feature h3 { font-size: 19px; }
+}
+@media (max-width: 991px) {
+  .iw-home .home-hero .card-body > .row > [class*="col-"],
+  .iw-home .home-features > .row > [class*="col-"],
+  .iw-home .home-performance .card-body > .row > [class*="col-"] { flex: 0 0 100%; max-width: 100%; }
+  .iw-home .home-illustration { max-width: 540px; margin: 24px auto 0; }
+  .iw-home .home-speedups { display: flex; gap: 24px; border-left: 0; border-top: 1px solid #d2d7dc; padding: 20px 0 0; margin-top: 14px; }
+  .iw-home .home-speedup { flex: 1; min-width: 0; }
+  .iw-home .home-speedup + .home-speedup { margin-top: 0; }
+}
+@media (max-width: 575px) {
+  .iw-home .home-hero .card-body, .iw-home .home-performance .card-body { padding: 22px 16px; }
+  .iw-home .home-eyebrow { font-size: 17px; }
+  .iw-home .home-lead { font-size: 17px; }
+  .iw-home .home-actions { flex-direction: column; }
+  .iw-home .home-button { width: 100%; padding-left: 12px; padding-right: 12px; font-size: 17px; }
+  .iw-home .home-performance h2 { font-size: 23px; }
+  .iw-home .home-benchmark-context { font-size: 16px; }
+  .iw-home .home-speedup p { font-size: 15px; }
+}
+
+.iw-home .card-header {
+  display: none;
+}
+
+/* Sidebar background */
+.main-sidebar {
+  background: #172938 !important;
+}
+
+/* Brand: logo + title */
+.main-sidebar .brand-link {
+  display: flex;
+  align-items: center;
+  min-height: 90px;
+  margin: 0 18px;
+  padding: 16px 0;
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .35);
+  color: #f4f7fa !important;
+}
+
+.main-sidebar .brand-link .brand-image {
+  float: none;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  max-height: 48px;
+  margin: 0 12px 0 0;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none !important;
+  opacity: 1;
+}
+
+.main-sidebar .iw-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.main-sidebar .iw-brand-text strong {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.main-sidebar .iw-brand-text small {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #c7d2dc;
+}
+
+/* Menu spacing */
+.main-sidebar .sidebar {
+  padding: 18px 10px;
+}
+
+.main-sidebar .nav-sidebar > .nav-item {
+  margin-bottom: 5px;
+}
+
+.main-sidebar .nav-sidebar > .nav-item > .nav-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 11px;
+  color: #e5edf3;
+  font-size: 17px;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+/* Icons and wrapping labels */
+.main-sidebar .nav-sidebar .nav-link > .nav-icon {
+  flex: 0 0 28px;
+  width: 28px;
+  margin: 0 14px 0 0;
+  text-align: center;
+  font-size: 23px;
+}
+
+.main-sidebar .nav-sidebar .nav-link > p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+/* Hover */
+.main-sidebar .nav-sidebar > .nav-item > .nav-link:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+}
+
+/* Selected page */
+.main-sidebar .nav-sidebar > .nav-item > .nav-link.active {
+  background: #a5eeea !important;
+  color: #173740 !important;
+  font-weight: 700;
+  box-shadow: none !important;
+}
+
+.main-sidebar .nav-sidebar .nav-link.active .nav-icon {
+  color: #173740;
+}
+
+/* Divider before Tutorial / Source code */
+.main-sidebar .iw-sidebar-divider {
+  height: 0;
+  margin: 16px 8px;
+  border-top: 1px solid rgba(255, 255, 255, .35);
+}
+
+/* Navbar: Home / Tutorial / GitHub */
+.main-header .iw-header-title {
+  display: flex;
+  align-items: center;
+  color: #292d32;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.main-header .iw-header-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #292d32;
+  font-size: 18px;
+}
+
+.main-header .iw-header-link i {
+  font-size: 23px;
+}
+
+.main-header .iw-header-link:hover {
+  color: #17a2b8;
+}
+
+.main-header .iw-header-github {
+  position: relative;
+  margin-left: 12px;
+  padding-left: 24px;
+}
+
+.main-header .iw-header-github::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  border-left: 1px solid #d2d7dc;
+}
