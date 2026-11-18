@@ -1,4 +1,5 @@
-#server
+# Server
+
 exp.ds <- reactiveValues(
   data = NULL,
   genename_type = NULL,
@@ -35,18 +36,20 @@ organism_list <- list(
   "Glycine max" = list(code = "gmx", orgnum = 3847),
   "Oryza sativa Japonica" = list(code = "osa", orgnum = 39947),
   "Zea mays" = list(code = "zma", orgnum = 4577),
-
+  
   # 原生生物
   "Plasmodium falciparum" = list(code = "pfa", orgnum = 36329),
   # "T. vaginalis G3 2022 (ref)" = list(code = "tva", orgdb = "org.Tvaginalis.eg.db", orgnum = 5722),
-  "T. vaginalis G3" = list(code = "tva_g3", orgnum = "5722_g3")
+  "T. vaginalis G3" = list(code = "tva_g3", orgnum = 5722)
 )
 
 output$select_organism_ui <- renderUI({
   pickerInput(
     inputId = "select_organism",
-    label = tags$span(style = "font-size: 18px;", "Specify the organism:"),
+    label = NULL,
     choices = sapply(organism_list, `[[`, "code"), selected = "hsa",
+    width = "100%",
+    options = shinyWidgets::pickerOptions(style = "btn-outline-info")
   )
 })
 
@@ -80,9 +83,10 @@ observe({
 
 output$exp_file_ui <- renderUI({
   fileInput(
-    "exp_file", label = div(style = "font-size: 18px;", "Please select a file or drag it into the upload area"),
+    "exp_file", label = NULL,
+    width = "100%",
     buttonLabel = tags$i(class = "fa-solid fa-upload", style = "font-size: 12px"),
-    placeholder = "accept format .txt, .tsv, .csv; max: 30 Mb",
+    placeholder = "No file selected",
     accept = c(".txt", ".tsv", ".csv")
   )
 })
@@ -98,9 +102,10 @@ observeEvent(input$demo_on, {
     output$exp_file_ui <- renderUI({
       fileInput(
         "exp_file", 
-        label = div(style = "font-size: 18px;", "Please select a file or drag it into the upload area"),
+        label = NULL,
+        width = "100%",
         buttonLabel = tags$i(class = "fa-solid fa-upload", style = "font-size: 12px"),
-        placeholder = "accept format .txt, .tsv, .csv; max: 30 Mb",
+        placeholder = "No file selected",
         accept = c(".txt", ".tsv", ".csv")
       )
     })
@@ -111,7 +116,7 @@ observeEvent(input$demo_on, {
     exp.ds$data <- file1
     exp.ds$ori_gene_number <- nrow(file1)
     exp.ds$preview <- exp.ds$data
-
+    
     # gene count and sample count
     exp.ds$gene_sample_count <- TRUE
     exp.ds$switch_genename <- TRUE
@@ -158,7 +163,7 @@ observeEvent(input$data_upload, {
   
   exp.ds$gene_sample_count <- FALSE
   exp.ds$switch_genename <- FALSE
-
+  
   ext <- tools::file_ext(input$exp_file$name)
   if (ext != "txt" && ext != "tsv" && ext != "csv") {
     shinyalert("Error", "Please upload a .txt, .tsv or csv file.", type = "error")

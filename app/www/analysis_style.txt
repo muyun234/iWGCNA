@@ -316,3 +316,139 @@
   height: 50%;
   border-left: 1px solid #d2d7dc;
 }
+
+/* Sidebar: compact menu spacing */
+.main-sidebar .nav-sidebar {
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.main-sidebar .nav-sidebar > .nav-item {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  margin-bottom: 4px;
+}
+
+.main-sidebar .nav-sidebar > .nav-item > .nav-link {
+  display: flex;
+  align-items: center;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 16px;
+}
+
+.main-sidebar .nav-sidebar .nav-link > .nav-icon {
+  flex: 0 0 26px;
+  width: 26px;
+  margin: 0 10px 0 0;
+  font-size: 21px;
+}
+
+.main-sidebar .nav-sidebar .nav-link > p {
+  margin: 0;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+/* Fully collapsed: remove labels from layout */
+body.sidebar-collapse
+.main-sidebar:not(:hover):not(.sidebar-focused)
+.nav-sidebar .nav-link > p {
+  display: none;
+}
+
+/* Fully collapsed: center icons and keep each item compact */
+body.sidebar-collapse
+.main-sidebar:not(:hover):not(.sidebar-focused)
+.nav-sidebar > .nav-item > .nav-link {
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 0;
+}
+
+body.sidebar-collapse
+.main-sidebar:not(:hover):not(.sidebar-focused)
+.nav-sidebar .nav-link > .nav-icon {
+  margin: 0;
+}
+
+/* Steps 1 and 4: align file upload controls */
+#iw-upload #upload_ui .input-group,
+#iw-interested #inter_upload_ui .input-group {
+  align-items: stretch;
+}
+
+#iw-upload #upload_ui .btn-file,
+#iw-upload #upload_ui .input-group > .form-control,
+#iw-interested #inter_upload_ui .btn-file,
+#iw-interested #inter_upload_ui .input-group > .form-control {
+  box-sizing: border-box;
+  height: 44px;
+  min-height: 44px;
+}
+
+#iw-upload #upload_ui .btn-file,
+#iw-interested #inter_upload_ui .btn-file {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+#iw-upload #upload_ui .input-group > .form-control,
+#iw-interested #inter_upload_ui .input-group > .form-control {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* Center the demo download icon and text */
+#iw-upload #download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+#iw-upload #download > i {
+  margin: 0;
+}
+
+/* Reduce spacing between card-style radio options on all analysis pages */
+.analysis-page .analysis-choice-cards .shiny-options-group {
+  gap: 6px;
+}
+
+/* run analysis button */
+.analysis-page .btn.analysis-run {
+  background: #17a2b8;
+  border: 2px solid #17a2b8;
+  color: #fff;
+}
+
+.analysis-page .btn.analysis-run:hover {
+  background: #138496;
+  border-color: #138496;
+  color: #fff;
+}
+
+/* next step button */
+.analysis-page .btn.analysis-next-button {
+  background: #fff;
+  border: 2px solid #138496;
+  color: #138496;
+  box-shadow: none;
+}
+
+.analysis-page .btn.analysis-next-button:hover {
+  background: #e8f6f8;
+  border-color: #117a8b;
+  color: #117a8b;
+}

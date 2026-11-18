@@ -32,6 +32,13 @@ output$cutoff_ui <- renderUI({
                step = 0.1, width = "100%")
 })
 
+observe({
+  shinyjs::toggle(
+    id = "pre-low-controls",
+    condition = isTRUE(input$low_expression_filter)
+  )
+})
+
 # when cutoff_ui is rendered again after a format change.
 observe({
   input$raw_format
@@ -345,48 +352,6 @@ observeEvent(input$pre_filter, {
       )
     })
     
-    output$infobox3 <- renderInfoBox({
-      infoBox("Retained Samples", nrow(exp.ds$table2), icon = icon("vial"), color = "info")
-    })
-    
-    # sample tree
-    output$pre_clustPlot1 <- renderPlotly({
-      if (is.null(exp.ds$data) || any(is.na(exp.ds$data)) || is.null(exp.ds$table2)) {
-        return(NULL)
-      }
-      # Set a temporary graphics device to avoid opening a PDF file
-      pdf(file = NULL)
-      
-      # Create ggplot object using ggdendrogram
-      p <- ggdendrogram(exp.ds$sample_tree, rotate = FALSE, size= 4) +
-        labs(title = "Sample clustering for outlier detection", x = "", y = "") +
-        theme_minimal() +
-        theme(          
-          axis.text.x = element_text(angle = 75, hjust = 1, vjust = 1, size = 12)
-        )
-      # Convert ggplot object to plotly object and set configurations
-      plotly_obj <- ggplotly(p, width = input$preplot_width, height = input$preplot_height) %>%
-        plotly::layout(
-          title = list(
-            text = "Sample clustering to detect outlier",  
-            font = list(
-              family = "Courier New, monospace",  
-              size = 20,  
-              color = "#7f7f7f"  
-            )
-          ),
-          xaxis = list(
-            tickangle = -75,  
-            automargin = TRUE  
-          )
-        ) %>%
-        config(toImageButtonOptions = list(format = input$preplot_format))
-      # Close the temporary graphics device
-      dev.off()
-      
-      return(plotly_obj)
-    })
-    
     # summary num
     output$pre_table = DT::renderDataTable({
       if(is.null(exp.ds$data)){return()}
@@ -408,6 +373,51 @@ observeEvent(input$pre_filter, {
     shiny::showTab(inputId = "pre_tabs", target = "outlier_tab")
     removeModal() 
   }
+})
+
+observe({
+  req(exp.ds$sample_tree)
+  # sample tree
+  output$pre_clustPlot1 <- renderPlotly({
+    if (is.null(exp.ds$data) || any(is.na(exp.ds$data)) || is.null(exp.ds$table2)) {
+      return(NULL)
+    }
+    # Set a temporary graphics device to avoid opening a PDF file
+    pdf(file = NULL)
+    
+    # Create ggplot object using ggdendrogram
+    p <- ggdendrogram(exp.ds$sample_tree, rotate = FALSE, size= 4) +
+      labs(title = "Sample clustering for outlier detection", x = "", y = "") +
+      theme_minimal() +
+      theme(          
+        axis.text.x = element_text(angle = 75, hjust = 1, vjust = 1, size = 12)
+      )
+    # Convert ggplot object to plotly object and set configurations
+    plotly_obj <- ggplotly(p, width = input$preplot_width, height = input$preplot_height) %>%
+      plotly::layout(
+        title = list(
+          text = "Sample clustering to detect outlier",  
+          font = list(
+            family = "Courier New, monospace",  
+            size = 20,  
+            color = "#7f7f7f"  
+          )
+        ),
+        xaxis = list(
+          tickangle = -75,  
+          automargin = TRUE  
+        )
+      ) %>%
+      config(toImageButtonOptions = list(format = input$preplot_format))
+    # Close the temporary graphics device
+    dev.off()
+    
+    return(plotly_obj)
+  })
+  
+  output$infobox3 <- renderInfoBox({
+    infoBox("Retained Samples", nrow(exp.ds$table2), icon = icon("vial"), color = "info")
+  })
 })
 
 observeEvent(input$step3_1, {
@@ -476,7 +486,7 @@ observeEvent(input$remove, {
   # 重新畫圖
   shinyjs::show("pre_remove_step2")
   
-  exp.ds$rm_sample_tree <- hclust(dist(exp.ds$table2), method = "average")
+  exp.ds$sample_tree <- hclust(dist(exp.ds$table2), method = "average")
   
   output$pre_clustPlot2 = renderPlotly({
     if(is.null(exp.ds$table2)){return()}
@@ -484,7 +494,7 @@ observeEvent(input$remove, {
     pdf(file = NULL)
     
     # 使用 ggdendrogram 生成 ggplot 物件
-    gg_plot <- ggdendrogram(exp.ds$rm_sample_tree, rotate = FALSE, size = 2) +
+    gg_plot <- ggdendrogram(exp.ds$sample_tree, rotate = FALSE, size = 2) +
       labs(title = "Sample clustering to detect outlier", x = "", y = "") +
       theme_minimal() +
       theme(

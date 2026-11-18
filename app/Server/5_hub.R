@@ -46,24 +46,25 @@ generate_gsmm_df <- function(exp.ds, trait, module){
 
 generate_ppi_network <- function(exp.ds, hub_gene_info, hub_ppi_level) {
   gene_df <- data.frame(gene = hub_gene_info$Gene)
-
-  map_path <- paste0("stringdb/", exp.ds$orgnum, "_map.RDS")
+  
+  version <- input$hub_string_version
+  map_path <- paste0("stringdb/", exp.ds$orgnum, "_", version, "_map.RDS")
   print(paste("map path: ", map_path))
   
   alias <- readRDS(map_path)
   
-  mapped_all <- gene_df |>
-    dplyr::inner_join(alias, by = "gene") |>
+  mapped_all <- gene_df %>%
+    dplyr::inner_join(alias, by = "gene") %>%
     dplyr::distinct(gene, STRING_id)
   
-  ambiguous_genes <- mapped_all |>
-    dplyr::count(gene, name = "n_STRING_ids") |>
+  ambiguous_genes <- mapped_all %>%
+    dplyr::count(gene, name = "n_STRING_ids") %>%
     dplyr::filter(n_STRING_ids > 1)
   
-  offline_mapped_genes <- mapped_all |>
+  offline_mapped_genes <- mapped_all %>%
     dplyr::anti_join(ambiguous_genes, by = "gene")
   
-  unmapped_genes <- gene_df |>
+  unmapped_genes <- gene_df %>%
     dplyr::anti_join(alias, by = "gene")
   
   print(paste("Input genes:", nrow(gene_df)))
@@ -71,7 +72,7 @@ generate_ppi_network <- function(exp.ds, hub_gene_info, hub_ppi_level) {
   print(paste("Ambiguous genes:", nrow(ambiguous_genes)))
   print(paste("Unmapped genes:", nrow(unmapped_genes)))
   
-  ppi_path <- paste0("stringdb/", exp.ds$orgnum , "_", hub_ppi_level, "_ppi.RDS")
+  ppi_path <- paste0("stringdb/", exp.ds$orgnum , "_", version, "_", hub_ppi_level, "_ppi.RDS")
   print(paste("map path: ", ppi_path))
   ppi <- readRDS(ppi_path)
   
@@ -106,6 +107,9 @@ generate_ppi_network <- function(exp.ds, hub_gene_info, hub_ppi_level) {
   ))
 }
 
+hub_mm_summary_saved <- reactiveVal(NULL)
+hub_wgcna_summary_saved <- reactiveVal(NULL)
+hub_ppi_summary_saved <- reactiveVal(NULL)
 #########################
 # select module and trait
 s_mod <- reactive({
@@ -129,6 +133,7 @@ observe({
     updateSelectInput(session, "hub_trait", choices = "Stage")
     updateSliderInput(session, "hub_MMcut", value = 0.8)
     updateSliderInput(session, "hub_GScut", value = 0.2) 
+    updateSelectInput(session, "hub_string_version", selected = "11.5")
   }
 })
 
@@ -164,10 +169,14 @@ observeEvent(
     shinyjs::hide("hub_connect_mm_plot_all_ui")
     shinyjs::hide("hub_connect_mm_dt_ui")
     shinyjs::hide("hub_wgcna_plot_ui")
-    shinyjs::hide("hub_connect_ppi_plot_ui")
+    shinyjs::hide("hub_connect_ppi_plot_all_ui")
     shinyjs::hide("hub_connect_ppi_dt_ui")
     shinyjs::show("hub_gsmm_run_ui")
     shinyjs::show("hub_run_ui")
+    
+    hub_mm_summary_saved(NULL)
+    hub_wgcna_summary_saved(NULL)
+    hub_ppi_summary_saved(NULL)
   },
   ignoreInit = TRUE,
   priority = 100
@@ -197,7 +206,7 @@ observeEvent(input$hub_gsmm_run, {
   ))
   shinyjs::show("hub_choose_ui")
   # updateRadioGroupButtons(session, "hub_choose", selected = "mm_gs")
-  
+  hub_mm_summary_saved(NULL)
   hub.ds$select_hubgene <- FALSE
   
   if (is.null(exp.ds$KME)) {
@@ -249,15 +258,21 @@ observe({
   hub.ds$hubgene_plot <- hubgene_plot
   # print(head(hub.ds$hubgene_plot))
   # hub.ds$hubgene_plot$Gene <- rownames(hub.ds$hubgene_plot)
+  
+  isolate(hub_mm_summary_saved(list(
+    kind = "mm_gs", module = hub.ds$gs_mm_module, trait = hub.ds$gs_mm_trait,
+    genes = nrow(hub.ds$hubgene_df), mm_cut = hub.ds$MMcut, gs_cut = hub.ds$GScut,
+    selected = nrow(hub.ds$hubgene_filter)
+  )))
 })
 
 output$hub_gsmm_text <- renderUI({
   req(hub.ds$MMcut, hub.ds$GScut, hub.ds$select_hubgene)
   tags$div(
     style = "font-size: 18px; font-weight: bold;padding-top: 10px;",
-    "Highlighting genes with MM ≥ ",
+    "Highlighting genes with |MM| ≥ ",
     tags$span(hub.ds$MMcut, style = "color: red;"),
-    " and GS ≥ ",
+    " and |GS| ≥ ",
     tags$span(hub.ds$GScut, style = "color: red;")
   )
 })
@@ -348,6 +363,8 @@ observeEvent(input$hub_run, {
   ))
   # updateRadioGroupButtons(session, "hub_choose", selected = "hub")
   
+  hub_wgcna_summary_saved(NULL)
+  hub_ppi_summary_saved(NULL)
   hub.ds$plot_connect_mm <- FALSE
   hub.ds$plot_wgcna_network <- FALSE
   hub.ds$plot_connect_ppi <- FALSE
@@ -362,14 +379,14 @@ observeEvent(input$hub_run, {
   
   ## connectivity v.s. MM ####
   # connectivity <- rowSums(modTOM)
-  module_connectivity <- exp.ds$connectivity_df |>
-    dplyr::filter(Module == hub.ds$hub_module) |>
+  module_connectivity <- exp.ds$connectivity_df %>%
+    dplyr::filter(Module == hub.ds$hub_module) %>%
     dplyr::select(Gene, Connectivity = kWithin)
   
   hub_gene_info <- hub.ds$wgcna_hubgene_df %>%
     dplyr::transmute(Gene = gene, AbsMM = absMM, AbsGS = absGS) %>%
-    dplyr::inner_join(module_connectivity, by = "Gene") |>
-    dplyr::select(Gene, Connectivity, AbsMM, AbsGS) |>
+    dplyr::inner_join(module_connectivity, by = "Gene") %>%
+    dplyr::select(Gene, Connectivity, AbsMM, AbsGS) %>%
     dplyr::arrange(dplyr::desc(Connectivity))
   
   hub.ds$hub_gene_info <- hub_gene_info
@@ -399,7 +416,7 @@ observeEvent(input$hub_run, {
   shinyjs::show("hub_connect_mm_dt_ui")
   shinyjs::show("hub_wgcna_plot_ui")
   shinyjs::show("hub_ppi_update_ui")
-  shinyjs::show("hub_connect_ppi_plot_ui")
+  shinyjs::show("hub_connect_ppi_plot_all_ui")
   shinyjs::show("hub_connect_ppi_dt_ui")
   shinyjs::hide("hub_run_ui")
   
@@ -488,6 +505,15 @@ observe({
   
   hub.ds$wgcna_g <- wgcna_g
   
+  isolate(hub_wgcna_summary_saved(list(
+    kind = "wgcna", module = hub.ds$hub_module, trait = hub.ds$hub_trait,
+    genes = nrow(hub.ds$hub_gene_info), connectivity_percent = as.numeric(input$hub_top_cut),
+    connectivity_selected = length(genes_to_display),
+    requested_labels = as.integer(input$hub_wgcna_hub_num),
+    nodes = igraph::vcount(g), edges = igraph::ecount(g),
+    labels = sum(wgcna_g %>% tidygraph::activate(nodes) %>% dplyr::pull(label) != "")
+  )))
+  
   hub.ds$plot_wgcna_network <- TRUE
   
   removeModal()
@@ -539,6 +565,13 @@ observe({
   df$type[df$Gene %in% top_both] <- "Top Connectivity & Degree"
   
   hub.ds$ppi_list <- ppi
+  isolate(hub_ppi_summary_saved(list(
+    kind = "ppi", module = hub.ds$hub_module, trait = hub.ds$hub_trait,
+    genes = nrow(hub.ds$hub_gene_info), connectivity_percent = as.numeric(input$hub_top_cut),
+    connectivity_selected = length(unique(top_connect)),
+    confidence = as.numeric(input$hub_ppi_level), degree_percent = as.numeric(input$hub_ppi_degree_percent),
+    degree_selected = length(unique(top_ppi)), overlap = length(unique(top_both))
+  )))
   hub.ds$connect_ppi_df <- df
   hub.ds$plot_connect_ppi <- TRUE
 })
@@ -794,6 +827,155 @@ observeEvent(input$hub_step6_2, {
   updateTabItems(session, "steps", "function")
   print("Step 6 button clicked, proceed to 6_Functional Enrichment Analysis.")
 })
+
+hub_active_summary <- reactive({
+  same_number <- function(a, b) {
+    length(a) == 1L &&
+      length(b) == 1L &&
+      is.finite(a) &&
+      is.finite(b) &&
+      a == b
+  }
+
+  if (identical(input$hub_choose, "mm_gs")) {
+    if (!isTRUE(hub.ds$select_hubgene)) return(NULL)
+
+    result <- hub_mm_summary_saved()
+
+    if (is.null(result) ||
+        !same_number(result$mm_cut, as.numeric(input$hub_MMcut)) ||
+        !same_number(result$gs_cut, as.numeric(input$hub_GScut))) {
+      return(NULL)
+    }
+
+  } else if (identical(input$hub_choose, "hub")) {
+
+    if (identical(input$hub_network_choose, "wgcna_network")) {
+      if (!isTRUE(hub.ds$plot_wgcna_network)) return(NULL)
+
+      result <- hub_wgcna_summary_saved()
+
+      if (is.null(result) ||
+          !same_number(
+            result$requested_labels,
+            as.numeric(input$hub_wgcna_hub_num)
+          )) {
+        return(NULL)
+      }
+
+    } else {
+      if (!isTRUE(hub.ds$plot_connect_ppi)) return(NULL)
+
+      result <- hub_ppi_summary_saved()
+
+      if (is.null(result) ||
+          !same_number(result$confidence, as.numeric(input$hub_ppi_level)) ||
+          !same_number(
+            result$degree_percent,
+            as.numeric(input$hub_ppi_degree_percent)
+          )) {
+        return(NULL)
+      }
+    }
+
+    if (!same_number(
+      result$connectivity_percent,
+      as.numeric(input$hub_top_cut)
+    )) {
+      return(NULL)
+    }
+
+  } else {
+    return(NULL)
+  }
+
+  if (!identical(result$module, input$hub_module) ||
+      !identical(result$trait, input$hub_trait)) {
+    return(NULL)
+  }
+
+  result
+})
+
+# Render the selected summary in the left column.
+output$hub_sidebar_summary <- renderUI({
+  result <- hub_active_summary()
+  if (is.null(result)) return(NULL)
+
+  item <- function(label, value) {
+    tags$p(tags$strong(paste0(label, ": ")), value)
+  }
+
+  content <- tagList(
+    item("Module", result$module),
+    item("Trait", result$trait),
+    item("Genes in module", result$genes)
+  )
+
+  if (identical(result$kind, "mm_gs")) {
+    title <- "MM–GS summary"
+
+    content <- tagList(
+      content,
+      item("|MM| threshold", paste0("≥ ", result$mm_cut)),
+      item("|GS| threshold", paste0("≥ ", result$gs_cut)),
+      item("Selected genes", result$selected)
+    )
+
+  } else {
+    content <- tagList(
+      content,
+      item(
+        "Connectivity selection",
+        paste0("Top ", result$connectivity_percent, "%")
+      ),
+      item("Selected by connectivity", result$connectivity_selected)
+    )
+
+    if (identical(result$kind, "wgcna")) {
+      title <- "WGCNA network summary"
+
+      content <- tagList(
+        content,
+        item("Network nodes", result$nodes),
+        item("Network edges", result$edges),
+        item("Labeled genes", result$labels)
+      )
+
+    } else {
+      title <- "Connectivity–PPI summary"
+
+      content <- tagList(
+        content,
+        item("STRING confidence", paste0("≥ ", result$confidence)),
+        item(
+          "PPI degree selection",
+          paste0("Top ", result$degree_percent, "%")
+        ),
+        item("Selected by PPI degree", result$degree_selected),
+        item("Top connectivity & degree", result$overlap)
+      )
+    }
+  }
+
+  div(
+    class = "analysis-summary",
+    tags$h3(title),
+    content,
+    tags$p(
+      class = "analysis-summary-note",
+      "Settings and counts for the current results."
+    )
+  )
+})
+
+# Show the next-step button after the corresponding results are ready.
+observe({
+  shinyjs::toggle(
+    "hub_step6_ui",
+    condition = !is.null(hub_active_summary())
+  )
+})
 #####################
 # download ####
 observeEvent(input$hub_gsmm_run, {
@@ -848,7 +1030,7 @@ observeEvent(input$hub_run, {
     },
     content = function(file) {
       
-      df <- hub.ds$hub_gene_info
+      df <- connect_mm_data()
       rownames(df) <- NULL
       
       df <- df %>%
@@ -890,8 +1072,7 @@ observeEvent(input$hub_run, {
         print(
           ggraph(hub.ds$wgcna_g, layout = "fr") +
             geom_edge_link(alpha = 0.3, colour = "grey8") +
-            geom_node_point(aes(size = degree, fill = GS, alpha = MM),
-                            shape = 21, colour = "black") +
+            geom_node_point(aes(size = Connectivity, fill = GS, alpha = MM)) +
             geom_node_text(aes(label = label), repel = TRUE, size = input$hub_wgcna_tex_size) +
             scale_size(range = c(4, 12)) +
             scale_fill_gradient(low = "grey40", high = color) +
@@ -927,8 +1108,8 @@ observeEvent(input$hub_run, {
         dplyr::select(Gene, Connectivity, degree, everything()) %>%
         dplyr::rename(
           "Intramodular Connectivity (kWithin)" = Connectivity,
-          "MM" = ModuleMembership,
-          "GS" = GeneSignificance,
+          "MM" = AbsMM,
+          "GS" = AbsGS,
           "PPI Degree" = degree,
           "Type" = type
         )

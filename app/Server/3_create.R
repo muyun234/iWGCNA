@@ -1,8 +1,17 @@
 # Server
+cre_power_summary_saved <- reactiveVal(NULL)
+cre_network_summary_saved <- reactiveVal(NULL)
+output$cre_power_summary <- renderUI({ cre_power_summary_saved() })
+output$cre_network_summary <- renderUI({ cre_network_summary_saved() })
+cre_network_name <- function(value) {
+  unname(c(unsigned = "Unsigned", signed = "Signed", `signed hybrid` = "Signed hybrid")[value])
+}
+
+# Server
 shiny::hideTab(inputId = "create_tabs", target = "module_detection_tab")
 
 ##################################################################
-# step 1 : Calculate Soft threshold
+# step 1 : Calculate Soft threshold ####
 networktype = eventReactive(input$cre_run,{
   as.character(input$Networktype)
 })
@@ -21,14 +30,23 @@ observeEvent(input$cre_run, {
     shinyalert("Please upload a file", type = "warning")
     updateTabItems(session, "steps", "upload")
     return()
-    }
+  }
   
   if(is.null(exp.ds$table2)){
     shinyalert("Please preprocess the data", type = "warning")
     updateTabItems(session, "steps", "preprocessing")
     return()
-    }
+  }
   
+  # Hide prior completion controls before evaluating a new set of parameters.
+  shinyjs::hide("cre_power_summary_ui")
+  shinyjs::hide("cre_network_summary_ui")
+  shinyjs::hide("step3b_ui")
+  shinyjs::hide("step4_ui")
+  shinyjs::hide("step6_ui")
+  shiny::hideTab(inputId = "create_tabs", target = "module_detection_tab")
+  cre_power_summary_saved(NULL)
+  cre_network_summary_saved(NULL)
   exp.ds$sft = list()
   
   showModal(modalDialog(
@@ -40,12 +58,35 @@ observeEvent(input$cre_run, {
   ))
   
   print(networktype())
-  power <- c(c(1:10), seq(from = 12, to = 30, by = 2))
   
-  exp.ds$sft <- WGCNA::pickSoftThreshold(
-    exp.ds$table2, powerVector = power, networkType = networktype(), 
-    RsquaredCut = rscut(), verbose = 5, blockSize = mbs())
+  cached_samples <- readRDS("Demo/demo_sample_ids.RDS")
+  current_samples <- rownames(exp.ds$table2)
+  samples_match <- identical(current_samples, cached_samples)
   
+  use_demo_sft <- isTRUE(input$demo_on) &&
+    identical(input$normalized_method, "raw") &&
+    isFALSE(input$low_expression_filter) &&
+    identical(input$gene_selection, "all") &&
+    ncol(exp.ds$table2) == 21653L &&
+    samples_match &&
+    identical(networktype(), "unsigned")
+  
+  if (isTRUE(use_demo_sft)) {
+    print("Loading precomputed Demo sft")
+    showNotification(
+      tagList(
+        icon("circle-info"), " Demo settings match. Loading precomputed results."
+      ), type = "message", duration = 6, closeButton = TRUE
+    )
+    exp.ds$sft <- readRDS("Demo/demo_sft.RDS")
+  } else {
+    power <- c(c(1:10), seq(from = 12, to = 30, by = 2))
+    
+    exp.ds$sft <- WGCNA::pickSoftThreshold(
+      exp.ds$table2, powerVector = power, networkType = networktype(), 
+      RsquaredCut = rscut(), verbose = 5, blockSize = mbs())
+  }
+    
   sft.data <- exp.ds$sft$fitIndices
   sft.data$signed_R2 <- -sign(sft.data$slope) * sft.data$SFT.R.sq
   exp.ds$sft.data <- sft.data
@@ -141,26 +182,98 @@ observeEvent(input$cre_run, {
               color <- "#000"
             }
             list(color = color)
-            }
-          )
+          }
         )
       )
-     })  
-  
-  output$powerselect_ui <- renderUI({
-    sliderInput(
-      inputId = "powerselect",
-      label = tags$span(style = "font-size: 18px;", "Soft-Threshold Power (β): "), 
-      min = 1, max = 33, value = paste0(exp.ds$recommended_power)
     )
   })
   
+  output$powerselect_ui <- renderUI({
+    cached_samples <- readRDS("Demo/demo_sample_ids.RDS")
+    current_samples <- rownames(exp.ds$table2)
+    samples_match <- identical(current_samples, cached_samples)
+    
+    use_demo_net <- isTRUE(input$demo_on) &&
+      identical(input$normalized_method, "raw") &&
+      isFALSE(input$low_expression_filter) &&
+      identical(input$gene_selection, "all") &&
+      ncol(exp.ds$table2) == 21653L &&
+      samples_match &&
+      identical(networktype(), "unsigned")
+    
+    if(use_demo_net){
+      power <- 10
+    } else if (is.finite(exp.ds$recommended_power)) {
+      power <- exp.ds$recommended_power
+    } else {
+      power <- 1
+    }
+    sliderInput(
+      inputId = "powerselect",
+      label = "Soft-threshold power (β)",
+      min = 1, max = 33,
+      value = power,
+      step = 1, width = "100%"
+    )
+  })
+  
+  output$powerselect_hint <- renderUI({
+    recommended <- exp.ds$recommended_power
+    
+    use_demo_net <- FALSE
+    sample_path <- "Demo/demo_sample_ids.RDS"
+    
+    if (
+      isTRUE(input$demo_on) &&
+      identical(input$normalized_method, "raw") &&
+      isFALSE(input$low_expression_filter) &&
+      identical(input$gene_selection, "all") &&
+      !is.null(exp.ds$table2) &&
+      ncol(exp.ds$table2) == 21653L &&
+      identical(networktype(), "unsigned") &&
+      file.exists(sample_path)
+    ) {
+      cached_samples <- readRDS(sample_path)
+      current_samples <- rownames(exp.ds$table2)
+      
+      use_demo_net <- identical(current_samples, cached_samples)
+    }
+    
+    hint <- if (use_demo_net) {
+      paste0(
+        "For this demo configuration, power = 10 is recommended ",
+        "to match the setting used in the published study. ",
+        "You may select a different value."
+      )
+    } else if (
+      length(recommended) == 1L && is.finite(recommended)
+    ) {
+      paste0("Recommended power: ", recommended, ". You may select a different value.")
+    } else {
+      paste0(
+        "No evaluated power meets the cutoff. ",
+        "The slider starts at 1 as a placeholder; ",
+        "review the evaluation plots and select an appropriate power."
+      )
+    }
+    
+    tags$p(class = "analysis-hint", hint)
+  })
+  
+  cre_power_summary_saved(tagList(
+    tags$p(tags$strong("Network type: "), cre_network_name(networktype())),
+    tags$p(tags$strong("R² cutoff: "), rscut()),
+    tags$p(tags$strong("Recommended power: "),
+           if (is.finite(exp.ds$recommended_power)) exp.ds$recommended_power else "No power meets the cutoff"),
+    tags$p(class = "analysis-summary-note", "Settings used for this completed evaluation.")
+  ))
+  shinyjs::show("cre_power_summary_ui")
   shinyjs::show("cre_download")
   shinyjs::show("cre_download_2")
   shinyjs::show("step3b_ui")
   shiny::showTab(inputId = "create_tabs", target = "module_detection_tab")
   removeModal()
-  })
+})
 
 ## call next step btn
 observeEvent(input$step3b,{
@@ -169,7 +282,7 @@ observeEvent(input$step3b,{
 })
 
 ##################################################################
-## step 2 : Module identification
+# step 2 : Module identification ####
 power = eventReactive(input$cre_run2,{
   as.numeric(input$powerselect)
 })
@@ -209,8 +322,16 @@ observeEvent(input$cre_run2, {
     return()
   }
   
+  if (length(power()) != 1L || !is.finite(power()) || power() < 1) {
+    shinyalert("Please select a valid soft-threshold power", type = "warning")
+    return()
+  }
+  shinyjs::hide("cre_network_summary_ui")
+  shinyjs::hide("step4_ui")
+  shinyjs::hide("step6_ui")
+  cre_network_summary_saved(NULL)
   print("Creat_module_btn is clicked!!")
-
+  
   showModal(modalDialog(
     title = "Loading...",
     easyClose = FALSE,
@@ -231,15 +352,42 @@ observeEvent(input$cre_run2, {
   print(tomtype())
   print(mbs())
   
-  tom_path <- file.path(data_folder$folder_path, "TOM")
-  # mbs <- nrow(table2)
-  cor <- WGCNA::cor
-  exp.ds$net <- WGCNA::blockwiseModules(
-    exp.ds$table2, maxBlockSize = mbs(), networkType = networktype(), TOMType = tomtype(), 
-    minModuleSize = mms(), power = power(), mergeCutHeight = mch(), 
-    numericLabels = TRUE, verbose = 3, saveTOMs = TRUE, saveTOMFileBase = tom_path
+  # 是否符合預先儲存的Demo分析設定
+  cached_samples <- readRDS("Demo/demo_sample_ids.RDS")
+  current_samples <- rownames(exp.ds$table2)
+  samples_match <- identical(current_samples, cached_samples)
+  
+  use_demo_net <- isTRUE(input$demo_on) &&
+    identical(input$normalized_method, "raw") &&
+    isFALSE(input$low_expression_filter) &&
+    identical(input$gene_selection, "all") &&
+    ncol(exp.ds$table2) == 21653L &&
+    samples_match &&
+    identical(networktype(), "unsigned") &&
+    power() == 10 &&
+    mms() == 30 &&
+    mch() == 0.25
+  
+  if (isTRUE(use_demo_net)) {
+    print("Loading precomputed Demo network")
+    showNotification(
+      tagList(
+        icon("circle-info"), " Demo settings match. Loading precomputed results."
+      ), type = "message", duration = 30, closeButton = TRUE
     )
-  cor <- stats::cor
+    exp.ds$net <- readRDS("Demo/demo_net.RDS")
+  } else {
+    print("Building network")
+    tom_path <- file.path(data_folder$folder_path, "TOM")
+    
+    cor <- WGCNA::cor
+    exp.ds$net <- WGCNA::blockwiseModules(
+      exp.ds$table2, maxBlockSize = mbs(), networkType = networktype(), TOMType = tomtype(), 
+      minModuleSize = mms(), power = power(), mergeCutHeight = mch(),
+      numericLabels = TRUE, verbose = 3, saveTOMs = TRUE, saveTOMFileBase = tom_path
+    )
+    cor <- stats::cor
+  }
   
   shinyjs::show("creat_step2")
   
@@ -255,7 +403,7 @@ observeEvent(input$cre_run2, {
   num_to_colcor <- paste0("ME", WGCNA::labels2colors(MEs_num))
   exp.ds$MEs_col <- exp.ds$MEs
   colnames(exp.ds$MEs_col) <- num_to_colcor
-
+  
   exp.ds$Gene2module <- data.frame(
     GID = names(exp.ds$net$colors),
     Module = exp.ds$moduleColors
@@ -278,8 +426,14 @@ observeEvent(input$cre_run2, {
   saveRDS(module_numbers, file2_path)
   
   # kWithin
-  df <- WGCNA::intramodularConnectivity.fromExpr(datExpr = exp.ds$table2, colors = exp.ds$moduleColors, 
-                                                 power = power(), networkType = networktype())
+  if (isTRUE(use_demo_net)) {
+    print("Loading precomputed Demo kWithin")
+    df <- readRDS("Demo/demo_kwithin.RDS")
+  } else {
+    df <- WGCNA::intramodularConnectivity.fromExpr(datExpr = exp.ds$table2, colors = exp.ds$moduleColors, 
+                                                   power = power(), networkType = networktype())
+  }
+  
   connectivity_df <- data.frame(
     Gene = colnames(exp.ds$table2),
     Module = exp.ds$moduleColors,
@@ -289,9 +443,14 @@ observeEvent(input$cre_run2, {
   exp.ds$connectivity_df <- connectivity_df
   
   # exp.ds$TOM <- TOMsimilarityFromExpr(exp.ds$table2, power = power(), TOMType = tomtype(), networkType = networktype())
-  e <- new.env()
-  load(exp.ds$net$TOMFiles[1], envir = e)
-  exp.ds$TOM <- as.matrix(e$TOM)
+  if (isTRUE(use_demo_net)) {
+    print("Loading precomputed Demo TOM")
+    exp.ds$TOM <- readRDS("Demo/demo_tom.RDS")
+  } else {
+    e <- new.env()
+    load(exp.ds$net$TOMFiles[1], envir = e)
+    exp.ds$TOM <- as.matrix(e$TOM)
+  }
   probes = names(exp.ds$table2)
   rownames(exp.ds$TOM) <- probes
   colnames(exp.ds$TOM) <- probes
@@ -405,6 +564,17 @@ observeEvent(input$cre_run2, {
       )
   }, width = input$cre_module_barplot_width, input$cre_module_barplot_height)
   
+  cre_network_summary_saved(tagList(
+    tags$p(tags$strong("Network type: "), cre_network_name(networktype())),
+    tags$p(tags$strong("Soft-threshold power (β): "), power()),
+    tags$p(tags$strong("Minimum gene group size: "), mms()),
+    tags$p(tags$strong("Gene group merge cut height: "), mch()),
+    tags$p(
+      tags$strong("Number of modules (excluding grey): "), length(unique(exp.ds$moduleColors)) - 1L
+    ),
+    tags$p(class = "analysis-summary-note", "Settings used for this completed network construction.")
+  ))
+  shinyjs::show("cre_network_summary_ui")
   exp.ds$KME <- NULL
   shinyjs::show("cre_download_4")
   shinyjs::show("cre_download_5")
@@ -561,7 +731,7 @@ output$credownload8 <- renderUI({
 addPopover(
   id = "Cutoff",
   options = list(
-    content = paste0("Set the cut-off value for the  scale free topology model fit (default : 0.8)",
+    content = paste0("Set the cut-off value for the  scale free topology model fit (default: 0.9)",
                      br(),
                      "Range : 0.0-1.0"),
     title = "More information",
@@ -620,7 +790,7 @@ addPopover(
       "<b>Unsigned</b>: uses the absolute value of correlations (|cor|^β). Both positive and negative correlations are treated equally.",br(),
       "<b>Signed</b>: keeps the sign of correlation ((1 + cor)/2)^β. Only positive correlations are emphasized.", br(),
       "<b>Signed Hybrid</b>: negative correlations are set to zero; positive ones use ((1 + cor)/2)^β."
-      ),
+    ),
     title = "More information",
     placement = "right",
     trigger = "click",

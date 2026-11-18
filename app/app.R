@@ -109,7 +109,7 @@ ui <- dashboardPage(
     status = "info",
     width = 260,
     elevation = 3,
-    collapsed = TRUE,
+    collapsed = FALSE,
     sidebarMenu(
       id = "steps",
       menuItem("Home", tabName = "home", icon = icon("home")),

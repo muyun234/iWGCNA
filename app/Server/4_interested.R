@@ -1,40 +1,84 @@
+# Server
+
+inter_trait_summary_saved <- reactiveVal(NULL)
+inter_association_summary_saved <- reactiveVal(NULL)
+inter_trait_source <- reactiveVal(NULL)
+output$inter_trait_summary <- renderUI({ inter_trait_summary_saved() })
+output$inter_association_summary <- renderUI({ inter_association_summary_saved() })
+
+inter_invalidate_association <- function() {
+  inter_association_summary_saved(NULL)
+  shinyjs::hide("inter_association_summary_ui")
+  shinyjs::hide("inter_step5_ui")
+  shinyjs::hide("inter_step6_ui")
+  shiny::hideTab(inputId = "inter_tabs", target = "inter_association_tab")
+}
+
+inter_reset_loaded_traits <- function() {
+  inter_invalidate_association()
+  inter_trait_summary_saved(NULL)
+  inter_trait_source(NULL)
+  phen(NULL)
+  exp.ds$phen <- NULL
+  exp.ds$show_trait_df <- FALSE
+  shinyjs::hide("step4b_ui")
+  shinyjs::hide("inter_trait_summary_ui")
+  shinyjs::hide("inter_download4_ui")
+}
+
+inter_save_trait_summary <- function(source, name, path) {
+  inter_trait_source(list(source = source, name = name, path = path))
+  inter_trait_summary_saved(tagList(
+    tags$p(tags$strong("Data source: "), source),
+    tags$p(tags$strong("Trait file: "), name),
+    tags$p(tags$strong("Matched samples: "), nrow(exp.ds$phen)),
+    tags$p(tags$strong("Trait columns after processing: "), ncol(exp.ds$phen)),
+    tags$p(class = "analysis-summary-note", "Loaded traits are aligned to the samples retained for network construction.")
+  ))
+  shinyjs::show("inter_trait_summary_ui")
+}
+
 # server
 shiny::hideTab(inputId = "inter_tabs", target = "inter_association_tab")
 
 ##################################################################
 # step 4a : upload trait ####
-phen <- reactiveVal(NULL) 
+phen <- reactiveVal(NULL)
 
 processTraitData <- function() {
-  req(phen())
-  
-  print("Processing trait data...")
-  # Process uploaded trait data
-  if (ncol(phen()) == 2) {
-    x <- phen()
-    Tcol <- as.character(unique(x[, 2]))
-    b <- list()
-    for (i in 1:length(Tcol)) {
-      b[[i]] <- data.frame(row.names = x[, 1],
-                           levels = ifelse(x[, 2] == Tcol[i], 1, 0))
-    }
-    c <- dplyr::bind_cols(b)
-    c <- data.frame(row.names = x[, 1], c)
-    colnames(c) <- Tcol
-    rownames(c) <- phen()[, 1]
-    exp.ds$phen <- c
-  } else {
-    exp.ds$phen <- data.frame(row.names = phen()[, 1], phen()[, -1])
+  req(phen(), exp.ds$table2)
+  x <- phen()
+  if (ncol(x) < 2L || nrow(x) == 0L) {
+    stop("Trait data must contain sample names and at least one trait column.")
   }
-  exp.ds$phen <- exp.ds$phen[match(rownames(exp.ds$table2), rownames(exp.ds$phen)), ]
+  sample_ids <- as.character(x[[1]])
+  # Preserve the original two-column categorical encoding.
+  if (ncol(x) == 2L) {
+    categories <- unique(x[[2]])
+    if (anyNA(categories)) stop("The categorical trait column contains missing values.")
+    processed <- as.data.frame(
+      lapply(categories, function(category) as.integer(x[[2]] == category)),
+      check.names = FALSE
+    )
+    colnames(processed) <- as.character(categories)
+    rownames(processed) <- sample_ids
+  } else {
+    processed <- x[, -1, drop = FALSE]
+    rownames(processed) <- sample_ids
+  }
+  sample_order <- match(rownames(exp.ds$table2), rownames(processed))
+  if (anyNA(sample_order)) {
+    stop("Some expression samples are missing from the trait file. Check the sample names.")
+  }
+  exp.ds$phen <- processed[sample_order, , drop = FALSE]
 }
 
 output$inter_upload_ui <- renderUI({
   fileInput(
     "trait_file",
     buttonLabel = tags$i(class = "fa-solid fa-upload", style = "font-size: 12px"),
-    label = tags$p(style = "font-size: 18px;", strong("Upload Your Trait/Phenotype Data")),
-    placeholder = "Only accepted .txt, .tsv or .csv file format.;max: 30MB",
+    label = "Trait/phenotype file", width = "100%",
+    placeholder = "No file selected",
     accept = c(".txt",".tsv", ".csv")
   )
 })
@@ -49,20 +93,30 @@ observeEvent(input$inter_demo, {
       updateTabItems(session, "steps", "create")
       return()
     }
-
+    
+    inter_reset_loaded_traits()
     output$inter_upload_ui <- renderUI({
       fileInput(
         "trait_file",
         buttonLabel = tags$i(class = "fa-solid fa-upload", style = "font-size: 12px"),
-        label = div(style = "font-size: 18px;", "Choose a file or drag it here"),
-        placeholder = "Only accepted .txt, .tsv or .csv file format.;max: 30MB",
+        label = "Trait/phenotype file", width = "100%",
+        placeholder = "No file selected",
         accept = c(".txt",".tsv", ".csv")
       )
     })
     
-    df <- read.csv("Demo/GSE15459_trait.csv", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-    phen(df)
-    processTraitData()
+    loaded <- tryCatch({
+      df <- read.csv("Demo/GSE15459_trait.csv", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+      phen(df)
+      processTraitData()
+      TRUE
+    }, error = function(e) {
+      inter_reset_loaded_traits()
+      shinyalert("Unable to load demo traits", conditionMessage(e), type = "error")
+      FALSE
+    })
+    if (!loaded) return()
+    inter_save_trait_summary("Demo", "GSE15459_trait.csv", "Demo/GSE15459_trait.csv")
     shinyjs::show("inter_download4_ui")
     
     shinyalert("Success", "Demo trait file has been successfully loaded.", type = "success")
@@ -70,19 +124,20 @@ observeEvent(input$inter_demo, {
     exp.ds$show_trait_df <- TRUE
     
   }else if (!input$inter_demo){
-    if(is.null(input$trait_file)){
-      shinyjs::hide("step4b_ui")
-      phen(NULL)
-      exp.ds$show_trait_df <- FALSE
-    } else {
-      shinyjs::show("step4b_ui")
+    source <- inter_trait_source()
+    if (!is.null(source) && identical(source$source, "Demo")) {
+      inter_reset_loaded_traits()
     }
+    if (is.null(inter_trait_source())) shinyjs::hide("step4b_ui")
+    if (!is.null(input$trait_file)) shinyjs::show("inter_upload_btn_ui")
   }
 })
 
 
 observeEvent(input$trait_file, {
   if (!is.null(input$trait_file)) {
+    inter_reset_loaded_traits()
+    updateAwesomeCheckbox(session, "inter_demo", value = FALSE)
     shinyjs::show("inter_upload_btn_ui")
   }
 })
@@ -97,45 +152,50 @@ observeEvent(input$inter_data_upload, {
     shinyalert("Error", "No file selected", type = "error")
     return()
   }
-
-  ext <- tools::file_ext(input$trait_file$name)
+  
+  ext <- tolower(tools::file_ext(input$trait_file$name))
   if (ext != "txt" && ext != "tsv" && ext != "csv") {
     shinyalert("Error", "Please upload a .txt, .tsv or .csv file.", type = "error")
     return()
-  } else {
-    shinyalert("Success", paste(input$trait_file$name, "has been successfully uploaded."), type = "success")
   }
   
   updateAwesomeCheckbox(session = session, inputId = "inter_demo", value = FALSE)
-
-  file_path <- input$trait_file$datapath
   
-  if(ext %in% c("txt", "tsv")) {
-    df <- read.delim(file = file_path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-  } else if(ext == "csv") {
-    df <- read.csv(file_path, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-  }
-  phen(df)
-  processTraitData()
+  inter_reset_loaded_traits()
+  file_path <- input$trait_file$datapath
+  loaded <- tryCatch({
+    if (ext %in% c("txt", "tsv")) {
+      df <- read.delim(file = file_path, sep = "\t", header = TRUE,
+                       stringsAsFactors = FALSE, check.names = FALSE)
+    } else {
+      df <- read.csv(file_path, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+    }
+    phen(df)
+    processTraitData()
+    TRUE
+  }, error = function(e) {
+    inter_reset_loaded_traits()
+    shinyalert("Unable to load trait data", conditionMessage(e), type = "error")
+    FALSE
+  })
+  if (!loaded) return()
+  inter_save_trait_summary("Uploaded file", input$trait_file$name, file_path)
+  shinyalert("Success", paste(input$trait_file$name, "has been successfully loaded."), type = "success")
   shinyjs::show("inter_download4_ui")
   
   shinyjs::show("step4b_ui")
   exp.ds$show_trait_df <- TRUE
-  })
-
-observeEvent(input$step4b, {
-  updateTabsetPanel(session = session, inputId = "inter_tabs", selected = "inter_association_tab")
-  print("Step 4b button clicked, proceed to 4b_Compute Associations.")
 })
+
 
 output$inter_upload_check <- renderDT({
   req(exp.ds$phen, exp.ds$show_trait_df)
   datatable(
     exp.ds$phen, selection = "none",
     options = list(
-      dom = 'lfrtip', paging = TRUE, ordering = FALSE, 
-      scrollY = "210px", scrollCollapse = TRUE
-      )
+      dom = 'lfrtip', paging = TRUE, ordering = FALSE,
+      scrollY = "360px", scrollCollapse = TRUE, scrollX = TRUE
+    )
   )
 })
 
@@ -147,197 +207,226 @@ observeEvent(input$step4b, {
     return()
   }
   
+  if (is.null(exp.ds$net) || is.null(exp.ds$MEs_col) || is.null(inter_trait_source())) {
+    shinyalert("Error", "Please complete network construction and load a trait file first.", type = "warning")
+    return()
+  }
+  if (!all(vapply(exp.ds$phen, is.numeric, logical(1)))) {
+    shinyalert("Error", "For multiple traits, provide numeric columns or encode categories as 0/1 columns.", type = "error")
+    return()
+  }
+  if (!identical(rownames(exp.ds$phen), rownames(exp.ds$MEs_col))) {
+    shinyalert("Error", "Expression samples have changed. Please reload the trait data before calculating associations.", type = "warning")
+    return()
+  }
+  trait_source_used <- inter_trait_source()
+  traits_used <- exp.ds$phen
+  inter_invalidate_association()
   showModal(modalDialog(
     title = "Loading...", easyClose = FALSE, footer = NULL,
     div(id = "inter_step1", tags$p("Calculate the correlation.......")),
     div(id = "inter_step2", shinyjs::hidden(tags$p("Ploting......")))
   ))
-  shinyjs::show("inter_cor_ui")
-  
-  # DEBUG
-  print(head(exp.ds$phen))
-  
-  # copy file to folder
-  if(input$inter_demo){
-    file.copy("Demo/GSE326939_trait.csv", file.path(data_folder$folder_path))
-  } else {
-    file4_path <- file.path(data_folder$folder_path, input$trait_file$name)
-    file.copy(input$trait_file$datapath, file4_path)
-  }
-  
-  MEs_order <- WGCNA::orderMEs(exp.ds$MEs_col)
-  moduleTraitCor <- cor(MEs_order, exp.ds$phen, use = "p")
-  moduleTraitPvalue <- WGCNA::corPvalueStudent(moduleTraitCor, exp.ds$nSamples)
-  
-  textMatrix <-  paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "");
-  
-  stars <- matrix(
-    "", nrow = nrow(moduleTraitPvalue),
-    ncol = ncol(moduleTraitPvalue)
-  )
-  stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.05] <- "*"
-  stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.01] <- "**"
-  stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.001] <- "***"
-  
-  textMatrix <- matrix(
-    paste0(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", stars),
-    nrow = nrow(moduleTraitCor),
-    ncol = ncol(moduleTraitCor),
-    dimnames = dimnames(moduleTraitCor)
-  )
-  
-  exp.ds$moduleTraitCor <- moduleTraitCor
-  exp.ds$moduleTraitPvalue <- moduleTraitPvalue
-  exp.ds$textMatrix <- textMatrix
-  
-  if (is.null(exp.ds$KME)) {
-    print("calculate KME")
-    exp.ds$KME <- WGCNA::signedKME(exp.ds$table2, exp.ds$MEs_col, outputColumnName="")
-  }
-  
-  exp.ds$mod_color = gsub(pattern = "^..", replacement = "", rownames(exp.ds$moduleTraitCor))
-  exp.ds$mod_color_anno = setNames(exp.ds$mod_color, exp.ds$mod_color)
-  exp.ds$Left_anno = rowAnnotation(
-    Module = exp.ds$mod_color,
-    col = list(Module = exp.ds$mod_color_anno),
-    show_legend = FALSE,
-    show_annotation_name = FALSE
-  )
-  
-  # 修改 moduleTraitCor 的行名
-  rownames(exp.ds$moduleTraitCor) <- exp.ds$mod_color
-  
-  # 修改 moduleTraitPvalue 的行名
-  rownames(exp.ds$moduleTraitPvalue) <- exp.ds$mod_color
-  
-  # 修改 textMatrix 的行名
-  rownames(exp.ds$textMatrix) <- exp.ds$mod_color
-  
-  file3_path <- file.path(data_folder$folder_path, "trait_textMatrix.rds")
-  saveRDS(exp.ds$textMatrix, file3_path)
-  
-  print("check mod_color:")
-  print(head(exp.ds$mod_color))
-  
-  print("check Module")
-  print(head(exp.ds$mod_color_anno))
-  
-  print("moduleTraitCor:")
-  print(exp.ds$moduleTraitCor)
-  
-  print("moduleTraitPvalue:")
-  print(exp.ds$moduleTraitPvalue)
-  
-  shinyjs::show("inter_step2")
-  output$inter_mtplot <- renderPlot({
-    exp.ds$heatmap = list()
+  on.exit(removeModal(), add = TRUE)
+  tryCatch({
+    shinyjs::show("inter_cor_ui")
     
-    tryCatch({
-      col_fun <- circlize::colorRamp2(c(-1, 0, 1), c("#1F77B4FF", "white", "#D62728FF"))
-      
-      exp.ds$heatmap = ComplexHeatmap::Heatmap(
-        matrix = exp.ds$moduleTraitCor,
-        cluster_rows = T,
-        cluster_columns = T,
-        left_annotation = exp.ds$Left_anno,
-        cell_fun = function(j, i, x, y, width, height, fill) {
-          grid::grid.text(
-            textMatrix[i, j],
-            x, y,
-            gp = grid::gpar(fontsize = 10)
-          )
-        },
-        row_names_side = "left",
-        column_names_rot = 45,
-        heatmap_legend_param = list(
-          at = seq(-1, 1, 0.5),
-          labels = as.character(seq(-1, 1, 0.5)),
-          title = "Correlation",
-          legend_height = unit(9, "cm"),
-          title_position = "lefttop-rot"
-        ),
-        rect_gp = gpar(col = "black", lwd = 1.2),
-        column_title = "Gene-group-trait correlations",
-        column_title_gp = gpar(fontsize = 14, fontface = "bold"),
-        col = col_fun,
-        show_heatmap_legend = TRUE,
-        row_split = NULL,
-        column_split = colnames(exp.ds$moduleTraitCor),
-        row_names_gp = gpar(fontsize = 14),
-        column_names_gp = gpar(fontsize = 12)
-      )
-      
-      draw(exp.ds$heatmap, heatmap_legend_side = "right")
-      
-    }, error = function(e) {
-      showNotification(paste("Error in rendering plot:", e$message), type = "error")
-    })
-  }, width = reactive(input$mtplot_width), height = reactive(input$mtplot_height))
-  
-  output$KME <- renderReactable({
-    df <- round(exp.ds$KME, digits = 2)
-    df$Gene <- rownames(df)
-    df <- merge(df, exp.ds$Gene2module, by.x = "Gene", by.y = "GID", all.x = TRUE)
+    # DEBUG
+    print(head(exp.ds$phen))
     
-    csvDownloadButton <- function(tableId, label = "Download CSV", filename = "data.csv") {
-      htmltools::tags$button(
-        label,
-        onclick = sprintf("Reactable.downloadDataCSV('%s', '%s')", tableId, filename)
-      )
-    }
-    hex_to_rgba <- function(hex, alpha = 0.05) {
-      rgb <- grDevices::col2rgb(hex) / 255
-      sprintf("rgba(%d,%d,%d,%.2f)", rgb[1]*255, rgb[2]*255, rgb[3]*255, alpha)
+    # Save the exact source used for this run, including the matching demo.
+    file.copy(trait_source_used$path,
+              file.path(data_folder$folder_path, trait_source_used$name))
+    
+    MEs_order <- WGCNA::orderMEs(exp.ds$MEs_col)
+    moduleTraitCor <- cor(MEs_order, exp.ds$phen, use = "p")
+    moduleTraitPvalue <- WGCNA::corPvalueStudent(moduleTraitCor, exp.ds$nSamples)
+    
+    textMatrix <-  paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "");
+    
+    stars <- matrix(
+      "", nrow = nrow(moduleTraitPvalue),
+      ncol = ncol(moduleTraitPvalue)
+    )
+    stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.05] <- "*"
+    stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.01] <- "**"
+    stars[!is.na(moduleTraitPvalue) & moduleTraitPvalue < 0.001] <- "***"
+    
+    textMatrix <- matrix(
+      paste0(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", stars),
+      nrow = nrow(moduleTraitCor),
+      ncol = ncol(moduleTraitCor),
+      dimnames = dimnames(moduleTraitCor)
+    )
+    
+    exp.ds$moduleTraitCor <- moduleTraitCor
+    exp.ds$moduleTraitPvalue <- moduleTraitPvalue
+    exp.ds$textMatrix <- textMatrix
+    
+    if (is.null(exp.ds$KME)) {
+      print("calculate KME")
+      exp.ds$KME <- WGCNA::signedKME(exp.ds$table2, exp.ds$MEs_col, outputColumnName="")
     }
     
-    reactable(
-      exp.ds$module_tb, columns = list(
-        Module = colDef(name = "Module (Number of Genes)", minWidth = 70),
-        module = colDef(show = FALSE),
-        Genes =  colDef(name = "Genes", minWidth = 100)
-      ), 
-      searchable = TRUE, wrap = FALSE,
-      details = function(index) {
-        plant_data <- df[df$Module == exp.ds$module_tb$module[index], ]
-        mm_col <- paste0(exp.ds$module_tb$module[index])
-        plant_data <- plant_data %>%
-          dplyr::select(Gene, Module, all_of(mm_col)) %>%
-          dplyr::rename(`Module Membership (kME)` = all_of(mm_col))
+    exp.ds$mod_color = gsub(pattern = "^..", replacement = "", rownames(exp.ds$moduleTraitCor))
+    exp.ds$mod_color_anno = setNames(exp.ds$mod_color, exp.ds$mod_color)
+    exp.ds$Left_anno = rowAnnotation(
+      Module = exp.ds$mod_color,
+      col = list(Module = exp.ds$mod_color_anno),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
+    )
+    
+    # 修改 moduleTraitCor 的行名
+    rownames(exp.ds$moduleTraitCor) <- exp.ds$mod_color
+    
+    # 修改 moduleTraitPvalue 的行名
+    rownames(exp.ds$moduleTraitPvalue) <- exp.ds$mod_color
+    
+    # 修改 textMatrix 的行名
+    rownames(exp.ds$textMatrix) <- exp.ds$mod_color
+    
+    file3_path <- file.path(data_folder$folder_path, "trait_textMatrix.rds")
+    saveRDS(exp.ds$textMatrix, file3_path)
+    
+    print("check mod_color:")
+    print(head(exp.ds$mod_color))
+    
+    print("check Module")
+    print(head(exp.ds$mod_color_anno))
+    
+    print("moduleTraitCor:")
+    print(exp.ds$moduleTraitCor)
+    
+    print("moduleTraitPvalue:")
+    print(exp.ds$moduleTraitPvalue)
+    
+    shinyjs::show("inter_step2")
+    output$inter_mtplot <- renderPlot({
+      exp.ds$heatmap = list()
+      
+      tryCatch({
+        col_fun <- circlize::colorRamp2(c(-1, 0, 1), c("#1F77B4FF", "white", "#D62728FF"))
         
-        tableId <- paste0("plant_data_", index)
-        fileName <- paste0("Gene_Group_", exp.ds$module_tb$module[index], ".csv")
-        
-        htmltools::div(
-          style = "padding: 1rem;",
-          htmltools::browsable(
-            tagList(
-              reactable(
-                plant_data, outlined = TRUE, searchable = TRUE, defaultPageSize = 10,
-                showPageSizeOptions = TRUE, pageSizeOptions = c(5, 10, 20, 50),
-                defaultColDef = colDef(
-                  align = "left", minWidth = 150
-                ),
-                columns = list(
-                  Gene = colDef(minWidth = 200)
-                ),
-                theme = reactableTheme(
-                  headerStyle = list(backgroundColor = hex_to_rgba(exp.ds$module_tb$module[index], 0.5))
-                ),
-                elementId = tableId
-              ),
-              csvDownloadButton(tableId, "Download CSV", filename = fileName)
+        exp.ds$heatmap = ComplexHeatmap::Heatmap(
+          matrix = exp.ds$moduleTraitCor,
+          cluster_rows = T,
+          cluster_columns = T,
+          left_annotation = exp.ds$Left_anno,
+          cell_fun = function(j, i, x, y, width, height, fill) {
+            grid::grid.text(
+              textMatrix[i, j],
+              x, y,
+              gp = grid::gpar(fontsize = 10)
             )
-          )
+          },
+          row_names_side = "left",
+          column_names_rot = 45,
+          heatmap_legend_param = list(
+            at = seq(-1, 1, 0.5),
+            labels = as.character(seq(-1, 1, 0.5)),
+            title = "Correlation",
+            legend_height = unit(9, "cm"),
+            title_position = "lefttop-rot"
+          ),
+          rect_gp = gpar(col = "black", lwd = 1.2),
+          column_title = "Gene-group-trait correlations",
+          column_title_gp = gpar(fontsize = 14, fontface = "bold"),
+          col = col_fun,
+          show_heatmap_legend = TRUE,
+          row_split = NULL,
+          column_split = colnames(exp.ds$moduleTraitCor),
+          row_names_gp = gpar(fontsize = 14),
+          column_names_gp = gpar(fontsize = 12)
+        )
+        
+        draw(exp.ds$heatmap, heatmap_legend_side = "right")
+        
+      }, error = function(e) {
+        showNotification(paste("Error in rendering plot:", e$message), type = "error")
+      })
+    }, width = reactive(input$mtplot_width), height = reactive(input$mtplot_height))
+    
+    output$KME <- renderReactable({
+      df <- round(exp.ds$KME, digits = 2)
+      df$Gene <- rownames(df)
+      df <- merge(df, exp.ds$Gene2module, by.x = "Gene", by.y = "GID", all.x = TRUE)
+      
+      csvDownloadButton <- function(tableId, label = "Download CSV", filename = "data.csv") {
+        htmltools::tags$button(
+          label,
+          onclick = sprintf("Reactable.downloadDataCSV('%s', '%s')", tableId, filename)
         )
       }
-    )
+      hex_to_rgba <- function(hex, alpha = 0.05) {
+        rgb <- grDevices::col2rgb(hex) / 255
+        sprintf("rgba(%d,%d,%d,%.2f)", rgb[1]*255, rgb[2]*255, rgb[3]*255, alpha)
+      }
+      
+      reactable(
+        exp.ds$module_tb, columns = list(
+          Module = colDef(name = "Module (Number of Genes)", minWidth = 70),
+          module = colDef(show = FALSE),
+          Genes =  colDef(name = "Genes", minWidth = 100)
+        ),
+        searchable = TRUE, wrap = FALSE,
+        details = function(index) {
+          plant_data <- df[df$Module == exp.ds$module_tb$module[index], ]
+          mm_col <- paste0(exp.ds$module_tb$module[index])
+          plant_data <- plant_data %>%
+            dplyr::select(Gene, Module, all_of(mm_col)) %>%
+            dplyr::rename(`Module Membership (kME)` = all_of(mm_col))
+          
+          tableId <- paste0("plant_data_", index)
+          fileName <- paste0("Gene_Group_", exp.ds$module_tb$module[index], ".csv")
+          
+          htmltools::div(
+            style = "padding: 1rem;",
+            htmltools::browsable(
+              tagList(
+                reactable(
+                  plant_data, outlined = TRUE, searchable = TRUE, defaultPageSize = 10,
+                  showPageSizeOptions = TRUE, pageSizeOptions = c(5, 10, 20, 50),
+                  defaultColDef = colDef(
+                    align = "left", minWidth = 150
+                  ),
+                  columns = list(
+                    Gene = colDef(minWidth = 200)
+                  ),
+                  theme = reactableTheme(
+                    headerStyle = list(backgroundColor = hex_to_rgba(exp.ds$module_tb$module[index], 0.5))
+                  ),
+                  elementId = tableId
+                ),
+                csvDownloadButton(tableId, "Download CSV", filename = fileName)
+              )
+            )
+          )
+        }
+      )
+    })
+    
+    inter_association_summary_saved(tagList(
+      tags$p(tags$strong("Trait file: "), trait_source_used$name),
+      tags$p(tags$strong("Samples: "), nrow(traits_used)),
+      tags$p(tags$strong("Traits tested: "), ncol(traits_used)),
+      # tags$p(tags$strong("Module rows tested: "), nrow(moduleTraitCor)),
+      tags$p(tags$strong("Modules excluding grey: "),
+             length(setdiff(exp.ds$mod_color, "grey"))),
+      tags$p(tags$strong("Correlation method: "), "Pearson; pairwise complete observations"),
+      tags$p(tags$strong("Cell labels: "), "Correlation coefficient (p-value), with significance stars"),
+      tags$p(class = "analysis-summary-note",
+             "Summary of this completed analysis. Module rows tested include grey when present; p-values are unadjusted.")
+    ))
+    shinyjs::show("inter_association_summary_ui")
+    shiny::showTab(inputId = "inter_tabs", target = "inter_association_tab")
+    updateTabsetPanel(session = session, inputId = "inter_tabs", selected = "inter_association_tab")
+    shinyjs::show("inter_step5_ui")
+    shinyjs::show("inter_step6_ui")
+  }, error = function(e) {
+    inter_invalidate_association()
+    shinyalert("Association analysis failed", conditionMessage(e), type = "error")
   })
-  
-  shiny::showTab(inputId = "inter_tabs", target = "inter_association_tab")
-  updateTabsetPanel(session = session, inputId = "inter_tabs", selected = "inter_association_tab")
-  shinyjs::show("inter_step5_ui")
-  shinyjs::show("inter_step6_ui")
-  removeModal()
 })
 
 ##############################
@@ -369,7 +458,7 @@ observe({
       "04_trait.tsv"
     },
     content = function(file) {
-      df<- exp.ds$phen 
+      df<- exp.ds$phen
       df$SampleName <- rownames(df)
       df <- df %>%
         dplyr::select(SampleName, everything())
@@ -382,9 +471,9 @@ observeEvent(exp.ds$phen, {
   output$inter_download <- renderUI({
     screenshotButton(
       label = "Download Plot",
-      download = TRUE, 
-      server_dir = tempdir(), 
-      id = "inter_mtplot", 
+      download = TRUE,
+      server_dir = tempdir(),
+      id = "inter_mtplot",
       filename = "04_GeneGroup2Trait")
   })
   
@@ -393,8 +482,8 @@ observeEvent(exp.ds$phen, {
       paste("04_kMETable.csv")
     },
     content = function(file) {
-      df<- round(exp.ds$KME, digits = 2)  
-      colnames(df)[1] <- "Gene_ID" 
+      df<- round(exp.ds$KME, digits = 2)
+      colnames(df)[1] <- "Gene_ID"
       write.table(x = df, file = file, sep = ",", quote = FALSE, row.names = TRUE)
     }
   )

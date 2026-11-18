@@ -43,13 +43,22 @@ bs4Dash::tabItem(
                                   value = FALSE, onLabel = "On", offLabel = "Off",
                                   onStatus = "info", offStatus = "default", size = "small"
                                 ))),
-                        div(id = "pre-low-controls", class = "analysis-fields-stack",
+                        shinyjs::hidden(div(
+                            id = "pre-low-controls",
+                            class = "analysis-fields-stack",
                             fluidRow(
-                              column(6, uiOutput("cutoff_ui")),
-                              column(6, numericInput(
-                                "sample_percentage", "Maximum low-expression samples (%)",
-                                value = 90, min = 0, max = 100, step = 1, width = "100%"
-                              )))),
+                              column(
+                                width = 6, uiOutput("cutoff_ui")
+                              ),
+                              column(
+                                width = 6,
+                                numericInput(
+                                  "sample_percentage", "Maximum low-expression samples (%)",
+                                  value = 90, min = 0, max = 100, step = 1, width = "100%"
+                                )
+                              )
+                            )
+                        )),
                         uiOutput("low_filter_hint")
                     ),
                     div(class = "analysis-step",
@@ -73,7 +82,7 @@ bs4Dash::tabItem(
                                         tags$small(textOutput("available_gene_count", inline = TRUE))),
                               tags$strong("Keep top N genes")
                             ),
-                            choiceValues = c("all", "top"), selected = "all",
+                            choiceValues = c("all", "top"), selected = "top",
                             status = "info", shape = "round", fill = TRUE, width = "100%"
                           )
                         ),
@@ -87,14 +96,15 @@ bs4Dash::tabItem(
                     ),
                     bs4Dash::actionButton(
                       "pre_filter", "Apply Preprocessing", status = "info",
-                      class = "analysis-button", icon = icon("check")
+                      class = "analysis-button analysis-run", icon = icon("check")
                     ),
                     shinyjs::hidden(
                       div(
                         id = "step3_1_ui", class = "analysis-next",
                         bs4Dash::actionButton(
                           "step3_1", "STEP 3. Network Construction",
-                          status = "info", icon = icon("arrow-right"), class = "analysis-button"
+                          status = "info", icon = icon("arrow-right"), 
+                          class = "analysis-button analysis-next-button"
                         )
                       )
                     )                
@@ -161,14 +171,15 @@ bs4Dash::tabItem(
                   ),
                   bs4Dash::actionButton(
                     inputId = "remove", label = "Apply Removal", status = "info",
-                    icon = icon("check"), class = "analysis-button"
+                    icon = icon("check"), class = "analysis-button analysis-run"
                   ),
                   shinyjs::hidden(
                     div(
                       id = "step2_2_remove_ui", class = "analysis-next",
                       bs4Dash::actionButton(
                         inputId = "step2_2_remove", label = "STEP 3. Network Construction",
-                        status = "info", icon = icon("arrow-right"), class = "analysis-button"
+                        status = "info", icon = icon("arrow-right"), 
+                        class = "analysis-button analysis-next-button"
                       )
                     )
                   )

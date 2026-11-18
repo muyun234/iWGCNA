@@ -13,10 +13,35 @@ observe({
   updateSelectInput(session, "func_module_select", choices = selected_mod())
 })
 observe({
-  req(input$func_module_select)
-  genelist <- exp.ds$Gene2module[exp.ds$Gene2module$Module %in% input$func_module_select, 1]
-  updateSelectInput(session, inputId = "func_genelist", choices = genelist)
+  req(input$func_module_select, exp.ds$Gene2module)
+  
+  selected_modules <- if ("All" %in% input$func_module_select) {
+    setdiff(unique(exp.ds$Gene2module$Module), "grey")
+  } else {
+    input$func_module_select
+  }
+  
+  genelist <- unique(exp.ds$Gene2module$GID[exp.ds$Gene2module$Module %in% selected_modules])
+  
+  demo_label_genes <- c(
+    "C1QA", "C1QB", "C1QC", "C3AR1", "CD14", "FCER1G", "FCGR1B", "FCGR2A", "FPR3", "HAVCR2",
+    "LAIR1", "TYROBP", "FBXL13", "TMED6"
+  )
+  
+  selected_genes <- if (isTRUE(input$demo_on)) {
+    intersect(demo_label_genes, genelist)
+  } else {
+    intersect(isolate(input$func_genelist), genelist)
+  }
+  
+  updateSelectInput(
+    session,
+    "func_genelist",
+    choices = genelist,
+    selected = selected_genes
+  )
 })
+
 observeEvent(input$func_go_category, {
   condition_to_show <- input$func_go_category != ""
   shinyjs::toggle(id = "func_go_setting_ui", condition = condition_to_show)
@@ -25,6 +50,50 @@ observeEvent(input$func_go_category, {
 observeEvent(input$func_kegg, {
   shinyjs::toggle(id = "func_kegg_setting_ui", condition = input$func_kegg)
 })
+
+observe({
+  req(input$demo_on, exp.ds$net)
+  if(input$demo_on){
+    updateSelectInput(session, "func_module_select", selected = c("salmon", "darkred"))
+    updateSelectInput(session, "func_string_version", selected = "11.5")
+    updatePickerInput(session, "func_go_category", selected = "all")
+    updateNumericInput(session, "func_go_padj", value = 0.05)
+    updateNumericInput(session, "func_go_topn", value = 10)
+    updatePrettyCheckbox(session, "func_kegg", value = TRUE)
+    updateNumericInput(session, "func_kegg_padj", value = 0.05)
+    updateNumericInput(session, "func_kegg_topn", value = 25)
+  }
+})
+
+func_summary_saved <- reactiveVal(NULL)
+output$func_summary <- renderUI({
+  settings <- func_summary_saved()
+  if (is.null(settings)) return(NULL)
+  go_names <- c(BP = "Biological Process", MF = "Molecular Function",
+                CC = "Cellular Component", all = "All (BP, MF, CC)")
+  div(
+    class = "analysis-summary",
+    tags$h3(icon("clipboard-list"), " Analysis summary"),
+    tags$p(tags$strong("Modules: "), paste(settings$modules, collapse = ", ")),
+    tags$p(tags$strong("STRING version: "), settings$string_version),
+    if (nzchar(settings$go_category)) tagList(
+      tags$p(tags$strong("GO: "), unname(go_names[settings$go_category])),
+      tags$p(tags$strong("GO adjusted P-value cutoff: "), settings$go_padj),
+      tags$p(tags$strong("GO terms per module (per category): "), settings$go_topn)
+    ) else tags$p(tags$strong("GO: "), "Disabled"),
+    if (settings$kegg) tagList(
+      tags$p(tags$strong("KEGG adjusted P-value cutoff: "), settings$kegg_padj),
+      tags$p(tags$strong("KEGG pathways per module: "), settings$kegg_topn)
+    ) else tags$p(tags$strong("KEGG: "), "Disabled"),
+    tags$p(tags$strong("Gene labels requested: "), length(settings$gene_labels)),
+    if (length(settings$gene_labels)) tags$details(
+      tags$summary("Show requested gene labels"),
+      tags$p(paste(settings$gene_labels, collapse = ", "))
+    ),
+    tags$p(class = "analysis-summary-note", "Settings used for the completed enrichment analysis. Run again to apply changes.")
+  )
+})
+
 # david
 # observe({
 #   req(input$func_go_category)
@@ -77,6 +146,18 @@ observeEvent(input$func_update, {
     shinyalert("Please select at least one gene group", type = "warning")
     return()
   }
+  func_summary_saved(NULL)
+  func_run_settings <- list(
+    modules = if ("All" %in% input$func_module_select) {
+      sort(setdiff(unique(exp.ds$moduleColors), "grey"))
+    } else input$func_module_select,
+    string_version = input$func_string_version,
+    go_category = input$func_go_category,
+    go_padj = input$func_go_padj, go_topn = as.integer(input$func_go_topn),
+    kegg = isTRUE(input$func_kegg),
+    kegg_padj = input$func_kegg_padj, kegg_topn = as.integer(input$func_kegg_topn),
+    gene_labels = input$func_genelist
+  )
   print("Func_functional_analysis_btn is clicked!!")
   
   showModal(modalDialog(
@@ -103,10 +184,6 @@ observeEvent(input$func_update, {
   string_org <- exp.ds$orgnum
   string_version <- input$func_string_version
   
-  if(exp.ds$organism == "tva_g3"){
-    string_org <- 5722
-  }
-  
   if (input$func_go_category != "" && input$func_kegg){
     exp.ds$enrich_mode <- "GO&KEGG"
   } else if (input$func_go_category != "" && input$func_kegg == FALSE) {
@@ -114,6 +191,7 @@ observeEvent(input$func_update, {
   } else if (input$func_go_category == "" && input$func_kegg) {
     exp.ds$enrich_mode <- "KEGG"
   }
+  exp.ds$func_go_category <- input$func_go_category
   print(paste0("enrich mode: ", exp.ds$enrich_mode))
   
   # exp.ds$OrgDb <- exp.ds$orgdb
@@ -137,7 +215,11 @@ observeEvent(input$func_update, {
     colnames(exp.ds$select_modules_cw$wide.res) <-
       sub("^X(?=[0-9])", "", colnames(exp.ds$select_modules_cw$wide.res), perl = TRUE)
     exp.ds$select_modules_cw$long.res <- exp.ds$cw$long.res[exp.ds$cw$long.res$cluster != grey_cluster, ]
-    exp.ds$select_modules_cw$cluster.list[[grey_name]] <- NULL
+    
+    keep <- exp.ds$cw$wide.res$modulecol != "grey"
+    keep_clusters <- unique(exp.ds$cw$wide.res$cluster[keep])
+    keep_names <- paste0("C", keep_clusters)
+    exp.ds$select_modules_cw$cluster.list = exp.ds$cw$cluster.list[names(exp.ds$cw$cluster.list) %in% keep_names]
   } else {
     select_modules <- input$func_module_select
     print("Select modules:")
@@ -183,7 +265,7 @@ observeEvent(input$func_update, {
     # } else {
     print("use orgdb database")
     
-    if(input$func_go_category == "all"){
+    if(exp.ds$func_go_category == "all"){
       exp.ds$enrich_bp <- myenrichCluster(
         object = exp.ds$select_modules_cw, type = "BP", 
         padjCutoff = input$func_go_padj, 
@@ -213,14 +295,14 @@ observeEvent(input$func_update, {
       
     } else {
       exp.ds$enrich_go <- myenrichCluster(
-        object = exp.ds$select_modules_cw, type = input$func_go_category, 
+        object = exp.ds$select_modules_cw, type = exp.ds$func_go_category, 
         padjCutoff = input$func_go_padj, 
         topn = go_topn(), all_genes = colnames(exp.ds$table2), seed = 2025825,
         stringdb = stringdb, string_org = string_org, string_version = string_version
       )
       
       exp.ds$enrich_go <- exp.ds$enrich_go %>%
-        mutate(Description = paste0(input$func_go_category, ": ", Description))
+        mutate(Description = paste0(exp.ds$func_go_category, ": ", Description))
     }
     # }
     
@@ -236,7 +318,7 @@ observeEvent(input$func_update, {
     shinyjs::show("func_heatmap_show_mode_ui")
     shinyjs::show("func_bar_show_mode_ui")
   } else if (exp.ds$enrich_mode == "GO") {
-    print(paste0("Run go, category is: ", input$func_go_category))
+    print(paste0("Run go, category is: ", exp.ds$func_go_category))
     
     # if(input$func_go_db == "david") {
     #   print("use david database")
@@ -248,7 +330,7 @@ observeEvent(input$func_update, {
     #   )
     # } else {
     print("use orgdb database")
-    if(input$func_go_category == "all"){
+    if(exp.ds$func_go_category == "all"){
       exp.ds$enrich_bp <- myenrichCluster(
         object = exp.ds$select_modules_cw, type = "BP", 
         padjCutoff = input$func_go_padj, 
@@ -278,14 +360,14 @@ observeEvent(input$func_update, {
       
     } else {
       exp.ds$enrich_go <- myenrichCluster(
-        object = exp.ds$select_modules_cw, type = input$func_go_category, 
+        object = exp.ds$select_modules_cw, type = exp.ds$func_go_category, 
         padjCutoff = input$func_go_padj, 
         topn = go_topn(), all_genes = colnames(exp.ds$table2), seed = 2025825,
         stringdb = stringdb, string_org = string_org, string_version = string_version
       )
       
       exp.ds$enrich_go <- exp.ds$enrich_go %>%
-        mutate(Description = paste0(input$func_go_category, ": ", Description))
+        mutate(Description = paste0(exp.ds$func_go_category, ": ", Description))
     }
     # }
     
@@ -322,6 +404,7 @@ observeEvent(input$func_update, {
     )
   })
   exp.ds$enrich_anno <- TRUE
+  func_summary_saved(func_run_settings)
 
   shinyjs::show("func_download_ui")
   shinyjs::show("func_download2_ui")
@@ -481,7 +564,7 @@ observe({
   if ((exp.ds$enrich_mode == "GO") ||
       (exp.ds$enrich_mode == "KEGG")) {
     
-    if(input$func_go_category == "all"){
+    if(exp.ds$func_go_category == "all"){
       exp.ds$moduel_anno <- 
         rbind(exp.ds$enrich_bp %>% group_by(group) %>% slice_head(n = go_topn()),
               exp.ds$enrich_mf %>% group_by(group) %>% slice_head(n = go_topn()),
@@ -502,7 +585,7 @@ observe({
     
   } else if (exp.ds$enrich_mode == "GO&KEGG") {
     if(input$func_heatmap_show_mode == "separate") {
-      if(input$func_go_category == "all"){
+      if(exp.ds$func_go_category == "all"){
       exp.ds$moduel_anno <- 
         rbind(exp.ds$enrich_bp %>% group_by(group) %>% slice_head(n = go_topn()),
               exp.ds$enrich_mf %>% group_by(group) %>% slice_head(n = go_topn()),
@@ -521,7 +604,7 @@ observe({
       }, width = function() input$func_heatmap_width, height = function() input$func_heatmap_height,
       execOnResize = TRUE)
     } else {
-      if(input$func_go_category == "all"){
+      if(exp.ds$func_go_category == "all"){
         exp.ds$moduel_anno <- 
           rbind(exp.ds$enrich_bp %>% group_by(group) %>% slice_head(n = go_topn()),
                 exp.ds$enrich_mf %>% group_by(group) %>% slice_head(n = go_topn()),
@@ -571,7 +654,7 @@ observeEvent(input$func_update, {
         generateFuncHeatmap(exp.ds$moduel_anno, exp.ds$final_color)
       } else if(exp.ds$enrich_mode == "GO&KEGG") {
         if(input$func_heatmap_show_mode == "separate") {
-          generateFuncHeatmap(exp.ds$enrich_go, exp.ds$go_final_color,
+          generateFuncHeatmap(exp.ds$moduel_anno, exp.ds$go_final_color,
                               exp.ds$enrich_kegg, exp.ds$kegg_final_color)
         } else {
           generateFuncHeatmap(exp.ds$moduel_anno, exp.ds$final_color)
@@ -589,7 +672,11 @@ observeEvent(input$func_update, {
           height = input$func_bar_height,
           units = "px", res = 96)
       
-      df <- exp.ds$moduel_anno
+      if (exp.ds$enrich_mode == "GO&KEGG" && input$func_heatmap_show_mode == "separate") {
+        df <- rbind(exp.ds$moduel_anno, exp.ds$enrich_kegg)
+      } else {
+        df <- exp.ds$moduel_anno
+      }
       separate <- (input$func_bar_show_mode == "separate")
       print(generateFuncBar(df, separate = separate))
       dev.off()
